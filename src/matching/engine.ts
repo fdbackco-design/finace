@@ -1,0 +1,491 @@
+import { BankTransaction, CardTransaction, HometaxInvoice, CompanyCode } from '../lib/types';
+import { FixedCostEntry, CashflowEntry, MatchedPair, MatchStatus } from './matcherTypes';
+import { similarity, daysBetween, fKeyMatchesBank, makeId } from './helpers';
+
+// ─── ID tagged types ───────────────────────────────────────────────────────
+export type TaggedBank   = BankTransaction  & { _id: string };
+export type TaggedCard   = CardTransaction  & { _id: string };
+export type TaggedHT     = HometaxInvoice   & { _id: string };
+
+// ─── Scoring helper ────────────────────────────────────────────────────────
+interface HtCandidate {
+  bankId:  string;
+  cardId:  string;
+  score:   number;
+  reason:  string;
+  date:    string;
+}
+
+function scoreCandidate(
+  htAmount: number,
+  htVendor: string,
+  htDate: string,
+  candidateAmount: number,
+  candidateVendorFields: string[],
+  candidateDate: string
+): { score: number; reason: string } {
+  const amountDiff = Math.abs(htAmount - candidateAmount);
+  if (amountDiff > 10) return { score: 0, reason: '' }; // amount must match within ₩10
+
+  const dateDiff = daysBetween(htDate, candidateDate);
+  if (dateDiff > 7) return { score: 0, reason: '' }; // date must be within ±7 days
+
+  const dateScore = dateDiff <= 1 ? 0.4 : dateDiff <= 3 ? 0.3 : 0.2;
+  const vendorScore = Math.max(...candidateVendorFields.map(f => similarity(htVendor, f)));
+  const score = 0.5 + dateScore + vendorScore * 0.1; // amount already matched → base 0.5
+
+  const reason = [
+    `금액일치(${htAmount.toLocaleString()}원)`,
+    `날짜차이${Math.round(dateDiff)}일`,
+    vendorScore > 0.3 ? `거래처유사(${(vendorScore * 100).toFixed(0)}%)` : '거래처미확인',
+  ].join(', ');
+
+  return { score, reason };
+}
+
+// ─── Main Engine ───────────────────────────────────────────────────────────
+export class MatchingEngine {
+  private banks:  TaggedBank[];
+  private cards:  TaggedCard[];
+  private hts:    TaggedHT[];
+  private fcs:    FixedCostEntry[];
+
+  private usedBankIds = new Set<string>();
+  private usedCardIds = new Set<string>();
+  private usedHtIds   = new Set<string>();
+
+  public cashflow:  CashflowEntry[] = [];
+  public matched:   MatchedPair[]   = [];
+
+  constructor(
+    banks: BankTransaction[],
+    cards: CardTransaction[],
+    hts:   HometaxInvoice[],
+    fcs:   FixedCostEntry[]
+  ) {
+    this.banks = banks.map((b, i) => ({ ...b, _id: `bank_${i}` }));
+    this.cards = cards.map((c, i) => ({ ...c, _id: `card_${i}` }));
+    this.hts   = hts.map((h, i) => ({ ...h, _id: `ht_${i}` }));
+    this.fcs   = fcs;
+  }
+
+  run() {
+    this.step1_provisional();
+    this.step3_htPurchase();   // HT first — so fixed cost doesn't consume same bank tx
+    this.step4_htSales();
+    this.step2_fixedCosts();   // Fixed cost enriches remaining unmatched bank withdrawals
+    this.step5_remaining();
+  }
+
+  // ── Step 1: 가수금 (피드백 BANK_IBK 입금 중 송해민/손성훈) ──────────────
+  private step1_provisional() {
+    for (const b of this.banks) {
+      if (b.categoryHint !== '가수금') continue;
+      this.usedBankIds.add(b._id);
+
+      const person = b.description.includes('송해민') ? '송해민' : '손성훈';
+      this.cashflow.push({
+        id:              makeId('cf'),
+        company:         b.company,
+        date:            b.transactionDate,
+        vendorName:      person,
+        category:        '가수금',
+        subCategory:     '가수금',
+        incomeAmount:    b.depositAmount,
+        expenseAmount:   0,
+        sourceType:      'BANK_IBK',
+        paymentSourceType: 'BANK_IBK',
+        matchStatus:     'AUTO_MATCHED',
+        matchReason:     `가수금 자동감지 (description="${b.description}")`,
+        hometaxInvoiceId: '',
+        bankTransactionId: b._id,
+        cardTransactionId: '',
+        fixedCostId:     '',
+      });
+    }
+  }
+
+  // ── Step 2: 고정비캘린더 ↔ 은행 출금 ────────────────────────────────────
+  private step2_fixedCosts() {
+    for (const b of this.banks) {
+      if (this.usedBankIds.has(b._id)) continue;
+      if (b.withdrawAmount <= 0) continue;
+
+      // Find best matching fixed cost entry
+      let bestFc: FixedCostEntry | null = null;
+      let bestReason = '';
+      let bestScore = 0;
+
+      for (const fc of this.fcs) {
+        // Company check: 고정비 company 'all' matches any, else must match
+        if (fc.company !== 'all' && fc.company !== b.company) continue;
+
+        const { matched, reason } = fKeyMatchesBank(
+          fc.matchKey,
+          fc.vendorAlias,
+          fc.accountNoStr,
+          b.description,
+          b.counterAccountName,
+          b.counterAccountNo
+        );
+        if (!matched) continue;
+
+        // Amount score (fixed costs may have variable amounts)
+        let score = 0.7;
+        if (fc.amount > 0) {
+          const diff = Math.abs(fc.amount - b.withdrawAmount) / fc.amount;
+          if (diff < 0.01) score = 0.95;
+          else if (diff < 0.1)  score = 0.8;
+          else if (diff < 0.3)  score = 0.7;
+          else score = 0.5; // amount mismatch — maybe variable
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestFc = fc;
+          bestReason = reason;
+        }
+      }
+
+      if (!bestFc) continue;
+
+      this.usedBankIds.add(b._id);
+      const status: MatchStatus = bestScore >= 0.85 ? 'AUTO_MATCHED' : 'MANUAL_REVIEW';
+
+      this.matched.push({
+        id:               makeId('mp'),
+        matchType:        'FIXED_COST-BANK',
+        score:            bestScore,
+        hometaxInvoiceId: '',
+        bankTransactionId: b._id,
+        cardTransactionId: '',
+        fixedCostId:      bestFc.id,
+        matchReason:      bestReason,
+      });
+
+      this.cashflow.push({
+        id:              makeId('cf'),
+        company:         b.company,
+        date:            b.transactionDate,
+        vendorName:      bestFc.vendorName,
+        category:        bestFc.isCardBill ? '카드결제' : '고정비',
+        subCategory:     bestFc.category,
+        incomeAmount:    0,
+        expenseAmount:   b.withdrawAmount,
+        sourceType:      'BANK_IBK',
+        paymentSourceType: 'BANK_IBK',
+        matchStatus:     status,
+        matchReason:     `고정비: ${bestReason}`,
+        hometaxInvoiceId: '',
+        bankTransactionId: b._id,
+        cardTransactionId: '',
+        fixedCostId:     bestFc.id,
+      });
+    }
+  }
+
+  // ── Step 3: HT 매입 ↔ 은행출금 or 카드 ─────────────────────────────────
+  private step3_htPurchase() {
+    const purchaseHts = this.hts.filter(
+      h => (h.sourceType === 'HT_PURCHASE_TAX' || h.sourceType === 'HT_PURCHASE') &&
+           !this.usedHtIds.has(h._id)
+    );
+
+    for (const ht of purchaseHts) {
+      const candidates: HtCandidate[] = [];
+
+      // Bank candidates (withdraw)
+      for (const b of this.banks) {
+        if (this.usedBankIds.has(b._id)) continue;
+        if (b.company !== ht.company) continue;
+        if (b.withdrawAmount <= 0) continue;
+
+        const r = scoreCandidate(
+          ht.totalAmount, ht.vendorName, ht.issueDate,
+          b.withdrawAmount,
+          [b.description, b.counterAccountName, b.counterAccountNo],
+          b.transactionDate
+        );
+        if (r.score > 0) {
+          candidates.push({ bankId: b._id, cardId: '', score: r.score, reason: r.reason, date: b.transactionDate });
+        }
+      }
+
+      // Card candidates
+      for (const c of this.cards) {
+        if (this.usedCardIds.has(c._id)) continue;
+        if (c.company !== ht.company) continue;
+        if (c.amount <= 0 || c.isCancelled) continue;
+
+        const cardDate = c.usedAt.substring(0, 10);
+        const r = scoreCandidate(
+          ht.totalAmount, ht.vendorName, ht.issueDate,
+          c.amount,
+          [c.merchantName, c.businessNo],
+          cardDate
+        );
+        if (r.score > 0) {
+          candidates.push({ bankId: '', cardId: c._id, score: r.score, reason: r.reason, date: cardDate });
+        }
+      }
+
+      if (candidates.length === 0) {
+        // Unmatched HT: create cashflow entry with invoice date
+        this.cashflow.push(this.htEntry(ht, 'UNMATCHED', 'hometax_unmatched', '', '', ht.issueDate));
+        continue;
+      }
+
+      // Sort by score desc
+      candidates.sort((a, b) => b.score - a.score);
+      const top = candidates[0];
+
+      // Determine status:
+      // AUTO_MATCHED needs either vendor similarity > 0.3 OR only 1 candidate with high score
+      const dupScores    = candidates.filter(c => c.score >= top.score - 0.05);
+      const vendorHit    = top.reason.includes('거래처유사') && !top.reason.includes('거래처미확인');
+      // Require vendor match for AUTO; pure amount+date match alone → MANUAL_REVIEW
+      const isAutoMatch  = top.score >= 0.75 && dupScores.length === 1 && vendorHit;
+      const status: MatchStatus = isAutoMatch ? 'AUTO_MATCHED' : 'MANUAL_REVIEW';
+
+      // Mark as used
+      this.usedHtIds.add(ht._id);
+      if (top.bankId)  this.usedBankIds.add(top.bankId);
+      if (top.cardId)  this.usedCardIds.add(top.cardId);
+
+      const paySourceType = top.bankId ? (this.banks.find(b => b._id === top.bankId)?.sourceType ?? 'BANK_IBK') : (this.cards.find(c => c._id === top.cardId)?.sourceType ?? 'CARD_IBK');
+
+      this.matched.push({
+        id:               makeId('mp'),
+        matchType:        top.bankId ? 'HT_PURCHASE-BANK' : 'HT_PURCHASE-CARD',
+        score:            top.score,
+        hometaxInvoiceId: ht._id,
+        bankTransactionId: top.bankId,
+        cardTransactionId: top.cardId,
+        fixedCostId:      '',
+        matchReason:      top.reason,
+      });
+
+      const vname = [ht.vendorName, ht.itemName].filter(Boolean).join(' ');
+      this.cashflow.push({
+        id:              makeId('cf'),
+        company:         ht.company,
+        date:            top.date,
+        vendorName:      vname,
+        category:        '매입',
+        subCategory:     ht.taxType === 'exempt' ? '매입(면세)' : '매입(과세)',
+        incomeAmount:    0,
+        expenseAmount:   ht.totalAmount,
+        sourceType:      ht.sourceType,
+        paymentSourceType: paySourceType,
+        matchStatus:     status,
+        matchReason:     top.reason + (ht.isCancelled ? ' [수정계산서주의]' : ''),
+        hometaxInvoiceId: ht._id,
+        bankTransactionId: top.bankId,
+        cardTransactionId: top.cardId,
+        fixedCostId:     '',
+      });
+    }
+  }
+
+  // ── Step 4: HT 매출 ↔ 은행입금 ─────────────────────────────────────────
+  private step4_htSales() {
+    const salesHts = this.hts.filter(
+      h => h.sourceType === 'HT_SALES_TAX' && !this.usedHtIds.has(h._id)
+    );
+
+    for (const ht of salesHts) {
+      const candidates: HtCandidate[] = [];
+
+      for (const b of this.banks) {
+        if (this.usedBankIds.has(b._id)) continue;
+        if (b.company !== ht.company) continue;
+        if (b.depositAmount <= 0) continue;
+
+        const r = scoreCandidate(
+          ht.totalAmount, ht.customerName, ht.issueDate,
+          b.depositAmount,
+          [b.description, b.counterAccountName],
+          b.transactionDate
+        );
+        if (r.score > 0) {
+          candidates.push({ bankId: b._id, cardId: '', score: r.score, reason: r.reason, date: b.transactionDate });
+        }
+      }
+
+      if (candidates.length === 0) {
+        this.cashflow.push(this.htSalesEntry(ht, 'UNMATCHED', 'hometax_sales_unmatched', '', ht.issueDate));
+        continue;
+      }
+
+      candidates.sort((a, b) => b.score - a.score);
+      const top = candidates[0];
+      const dupScores2   = candidates.filter(c => c.score >= top.score - 0.05);
+      const vendorHit2   = top.reason.includes('거래처유사') && !top.reason.includes('거래처미확인');
+      const isAuto2      = top.score >= 0.75 && dupScores2.length === 1 && vendorHit2;
+      const status: MatchStatus = isAuto2 ? 'AUTO_MATCHED' : 'MANUAL_REVIEW';
+
+      this.usedHtIds.add(ht._id);
+      this.usedBankIds.add(top.bankId);
+
+      this.matched.push({
+        id:               makeId('mp'),
+        matchType:        'HT_SALES-BANK',
+        score:            top.score,
+        hometaxInvoiceId: ht._id,
+        bankTransactionId: top.bankId,
+        cardTransactionId: '',
+        fixedCostId:      '',
+        matchReason:      top.reason,
+      });
+
+      const vname = [ht.customerName, ht.itemName].filter(Boolean).join(' ');
+      this.cashflow.push({
+        id:              makeId('cf'),
+        company:         ht.company,
+        date:            top.date,
+        vendorName:      vname,
+        category:        '매출',
+        subCategory:     '매출수금',
+        incomeAmount:    ht.totalAmount,
+        expenseAmount:   0,
+        sourceType:      'HT_SALES_TAX',
+        paymentSourceType: 'BANK_IBK',
+        matchStatus:     status,
+        matchReason:     top.reason,
+        hometaxInvoiceId: ht._id,
+        bankTransactionId: top.bankId,
+        cardTransactionId: '',
+        fixedCostId:     '',
+      });
+    }
+  }
+
+  // ── Step 5: 미매칭 잔여 ────────────────────────────────────────────────
+  private step5_remaining() {
+    // Remaining bank transactions
+    for (const b of this.banks) {
+      if (this.usedBankIds.has(b._id)) continue;
+
+      if (b.depositAmount > 0) {
+        this.cashflow.push({
+          id:              makeId('cf'),
+          company:         b.company,
+          date:            b.transactionDate,
+          vendorName:      b.counterAccountName || b.description,
+          category:        '기타수입',
+          subCategory:     b.description,
+          incomeAmount:    b.depositAmount,
+          expenseAmount:   0,
+          sourceType:      b.sourceType,
+          paymentSourceType: b.sourceType,
+          matchStatus:     'UNMATCHED',
+          matchReason:     'bank_deposit_unmatched',
+          hometaxInvoiceId: '',
+          bankTransactionId: b._id,
+          cardTransactionId: '',
+          fixedCostId:     '',
+        });
+      } else if (b.withdrawAmount > 0) {
+        this.cashflow.push({
+          id:              makeId('cf'),
+          company:         b.company,
+          date:            b.transactionDate,
+          vendorName:      b.counterAccountName || b.description,
+          category:        '기타지출',
+          subCategory:     b.description,
+          incomeAmount:    0,
+          expenseAmount:   b.withdrawAmount,
+          sourceType:      b.sourceType,
+          paymentSourceType: b.sourceType,
+          matchStatus:     'UNMATCHED',
+          matchReason:     'bank_withdrawal_unmatched',
+          hometaxInvoiceId: '',
+          bankTransactionId: b._id,
+          cardTransactionId: '',
+          fixedCostId:     '',
+        });
+      }
+    }
+
+    // Remaining card transactions (non-cancelled, not used)
+    for (const c of this.cards) {
+      if (this.usedCardIds.has(c._id)) continue;
+      if (c.isCancelled || c.amount <= 0) continue;
+
+      this.cashflow.push({
+        id:              makeId('cf'),
+        company:         c.company,
+        date:            c.paymentDueDate || c.usedAt.substring(0, 10),
+        vendorName:      c.merchantName,
+        category:        '카드지출',
+        subCategory:     c.salesType,
+        incomeAmount:    0,
+        expenseAmount:   c.amount,
+        sourceType:      c.sourceType,
+        paymentSourceType: c.sourceType,
+        matchStatus:     'UNMATCHED',
+        matchReason:     'card_unmatched',
+        hometaxInvoiceId: '',
+        bankTransactionId: '',
+        cardTransactionId: c._id,
+        fixedCostId:     '',
+      });
+    }
+  }
+
+  // ── Helper builders ────────────────────────────────────────────────────
+  private htEntry(
+    ht: TaggedHT, status: MatchStatus, reason: string,
+    bankId: string, cardId: string, date: string
+  ): CashflowEntry {
+    const vname = [ht.vendorName, ht.itemName].filter(Boolean).join(' ');
+    return {
+      id:              makeId('cf'),
+      company:         ht.company,
+      date,
+      vendorName:      vname,
+      category:        '매입',
+      subCategory:     ht.taxType === 'exempt' ? '매입(면세)' : '매입(과세)',
+      incomeAmount:    0,
+      expenseAmount:   ht.totalAmount,
+      sourceType:      ht.sourceType,
+      paymentSourceType: '',
+      matchStatus:     status,
+      matchReason:     reason,
+      hometaxInvoiceId: ht._id,
+      bankTransactionId: bankId,
+      cardTransactionId: cardId,
+      fixedCostId:     '',
+    };
+  }
+
+  private htSalesEntry(
+    ht: TaggedHT, status: MatchStatus, reason: string,
+    bankId: string, date: string
+  ): CashflowEntry {
+    const vname = [ht.customerName, ht.itemName].filter(Boolean).join(' ');
+    return {
+      id:              makeId('cf'),
+      company:         ht.company,
+      date,
+      vendorName:      vname,
+      category:        '매출',
+      subCategory:     '매출수금',
+      incomeAmount:    ht.totalAmount,
+      expenseAmount:   0,
+      sourceType:      'HT_SALES_TAX',
+      paymentSourceType: '',
+      matchStatus:     status,
+      matchReason:     reason,
+      hometaxInvoiceId: ht._id,
+      bankTransactionId: bankId,
+      cardTransactionId: '',
+      fixedCostId:     '',
+    };
+  }
+
+  // ── Unmatched collections ───────────────────────────────────────────────
+  getUnmatchedBanks():  TaggedBank[] { return this.banks.filter(b => !this.usedBankIds.has(b._id)); }
+  getUnmatchedCards():  TaggedCard[] { return this.cards.filter(c => !this.usedCardIds.has(c._id)); }
+  getUnmatchedHts():    TaggedHT[]   { return this.hts.filter(h => !this.usedHtIds.has(h._id)); }
+}

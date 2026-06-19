@@ -1,0 +1,21 @@
+{
+  "name": "finace-parser",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "parse":     "ts-node scripts/parse-all.ts",
+    "match":     "ts-node scripts/match-all.ts",
+    "db:import": "ts-node scripts/import-to-supabase.ts",
+    "db:check":  "ts-node scripts/check-db.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "dotenv": "^17.4.2",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}
