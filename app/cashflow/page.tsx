@@ -1,6 +1,19 @@
-export const dynamic = 'force-dynamic';
+export const dynamic   = 'force-dynamic';
+export const revalidate = 0;
 
-import { createServerClient } from '@/src/lib/supabase/server';
+import { fetchTable } from '@/src/lib/supabase/server';
+
+type CashflowRow = {
+  id: string;
+  company_code: string;
+  entry_date: string;
+  vendor_name: string;
+  category: string;
+  sub_category: string | null;
+  income_amount: number;
+  expense_amount: number;
+  match_status: string;
+};
 
 const COMPANY_LABEL: Record<string, string> = {
   feedback:  '피드백',
@@ -21,49 +34,72 @@ function fmt(n: number) {
   return n > 0 ? new Intl.NumberFormat('ko-KR').format(n) : '';
 }
 
-async function getEntries() {
-  const client = createServerClient();
-  if (!client) return null;
+function EnvWarn() {
+  return (
+    <div className="env-warn">
+      <strong>⚠️ Supabase 환경변수가 설정되지 않았습니다.</strong><br />
+      Vercel Dashboard → Settings → Environment Variables 에 아래 3개를 등록하고 <strong>Redeploy</strong> 하세요.<br /><br />
+      &nbsp;• NEXT_PUBLIC_SUPABASE_URL<br />
+      &nbsp;• NEXT_PUBLIC_SUPABASE_ANON_KEY<br />
+      &nbsp;• SUPABASE_SERVICE_ROLE_KEY<br /><br />
+      진단: <a href="/api/env-check" target="_blank" style={{ color: '#92400e', textDecoration: 'underline' }}>/api/env-check</a>
+      &nbsp;·&nbsp;
+      <a href="/api/db-check" target="_blank" style={{ color: '#92400e', textDecoration: 'underline' }}>/api/db-check</a>
+    </div>
+  );
+}
 
-  const { data, error } = await client
-    .from('cashflow_entries')
-    .select('id,company_code,entry_date,vendor_name,category,sub_category,income_amount,expense_amount,match_status')
-    .order('entry_date', { ascending: false })
-    .limit(100);
-
-  if (error) return null;
-  return data as any[];
+function DbErrorWarn({ message, code }: { message: string; code?: string }) {
+  const isTableMissing = code === '42P01' || code === 'PGRST200';
+  return (
+    <div className="env-warn" style={{ background: '#fef2f2', borderColor: '#fca5a5' }}>
+      {isTableMissing ? (
+        <>
+          <strong>⚠️ cashflow_entries 테이블을 찾을 수 없습니다.</strong><br />
+          Supabase Dashboard → SQL Editor 에서 <code>001_init_finance_schema.sql</code> migration을 실행했는지 확인하세요.<br /><br />
+          진단: <a href="/api/db-check" target="_blank" style={{ color: '#991b1b', textDecoration: 'underline' }}>/api/db-check</a>
+        </>
+      ) : (
+        <>
+          <strong>⚠️ Supabase 연결은 됐지만 DB 조회 중 오류가 발생했습니다.</strong><br />
+          {message && <><code style={{ fontSize: 12 }}>{message}</code><br /></>}
+          진단: <a href="/api/db-check" target="_blank" style={{ color: '#991b1b', textDecoration: 'underline' }}>/api/db-check</a>
+        </>
+      )}
+    </div>
+  );
 }
 
 export default async function CashflowPage() {
-  const entries = await getEntries();
+  const result = await fetchTable<CashflowRow>(
+    'cashflow_entries',
+    (client) =>
+      client
+        .from('cashflow_entries')
+        .select('id,company_code,entry_date,vendor_name,category,sub_category,income_amount,expense_amount,match_status')
+        .order('entry_date', { ascending: false })
+        .limit(100) as any,
+  );
 
   return (
     <div className="page">
       <h1 className="page-title">자금수지현황표</h1>
       <p className="page-sub">최근 100건 · 날짜 내림차순</p>
 
-      {entries === null && (
-        <div className="env-warn">
-          <strong>⚠️ Supabase 환경변수가 설정되지 않았습니다.</strong><br />
-          Vercel Dashboard → Settings → Environment Variables 에 아래 3개를 등록하고 <strong>Redeploy</strong> 하세요.<br /><br />
-          &nbsp;• NEXT_PUBLIC_SUPABASE_URL<br />
-          &nbsp;• NEXT_PUBLIC_SUPABASE_ANON_KEY<br />
-          &nbsp;• SUPABASE_SERVICE_ROLE_KEY<br /><br />
-          등록 확인: <a href="/api/env-check" target="_blank" style={{ color: '#92400e', textDecoration: 'underline' }}>/api/env-check</a>
-        </div>
-      )}
+      {result.status === 'env_missing'    && <EnvWarn />}
+      {result.status === 'table_missing'  && <DbErrorWarn message="테이블이 없습니다" code="42P01" />}
+      {result.status === 'db_error'       && <DbErrorWarn message={result.message} code={result.code} />}
 
-      {entries !== null && entries.length === 0 && (
+      {result.status === 'ok' && result.data.length === 0 && (
         <div className="table-wrap">
           <div className="empty">
             <p className="empty-title">아직 적재된 데이터가 없습니다</p>
-            <p>npm run db:import 를 실행해 데이터를 적재하세요.</p>
+            <p>로컬에서 <code>npm run db:import</code>를 실행한 뒤 다시 확인하세요.</p>
           </div>
         </div>
       )}
 
-      {entries !== null && entries.length > 0 && (
+      {result.status === 'ok' && result.data.length > 0 && (
         <div className="table-wrap">
           <table>
             <thead>
@@ -79,7 +115,7 @@ export default async function CashflowPage() {
               </tr>
             </thead>
             <tbody>
-              {entries.map((e) => (
+              {result.data.map((e) => (
                 <tr key={e.id}>
                   <td>{COMPANY_LABEL[e.company_code] ?? e.company_code}</td>
                   <td>{e.entry_date}</td>
