@@ -5,6 +5,7 @@ export default function Home() {
       <p className="home-desc">피드백 · 상생 · 슛문 자금 관리</p>
       <div className="home-buttons">
         <a href="/cashflow"     className="btn">자금수지현황표</a>
+        <a href="/upload"       className="btn btn-outline">📂 파일 업로드</a>
         <a href="/transactions" className="btn btn-outline">전체 원장</a>
         <a href="/unmatched"    className="btn btn-outline">미매칭 검토</a>
         <a href="/dashboard"    className="btn btn-outline">대시보드</a>
