@@ -148,3 +148,74 @@ export function buildMonthlyPivot(entries: DbEntry[], daysInMonth: number): Cash
 
   return rows;
 }
+
+// ── 월간 요약 ─────────────────────────────────────────────────────────────────
+
+export type CashflowMonthlySummary = {
+  month: string;
+  days: number[];
+  daily: {
+    cashIncome:            Record<number, number>;
+    salesCollection:       Record<number, number>;
+    payablesAndFixedCosts: Record<number, number>;
+  };
+  totals: {
+    cashIncomeTotal:            number;
+    salesCollectionTotal:       number;
+    payablesAndFixedCostsTotal: number;
+    requiredMoney:              number;
+  };
+};
+
+export function buildCashflowMonthlySummary(
+  entries: DbEntry[],
+  month: string,
+  daysInMonth: number,
+): CashflowMonthlySummary {
+  const daily = {
+    cashIncome:            {} as Record<number, number>,
+    salesCollection:       {} as Record<number, number>,
+    payablesAndFixedCosts: {} as Record<number, number>,
+  };
+
+  function add(rec: Record<number, number>, day: number, amount: number) {
+    const d = Math.min(day, daysInMonth);
+    rec[d] = (rec[d] ?? 0) + amount;
+  }
+
+  for (const e of entries) {
+    const day = dayFromDate(e.entry_date);
+
+    // 매출수금: category='매출' OR source_type='HT_SALES_TAX'
+    if (e.income_amount > 0 && (e.category === '매출' || e.source_type === 'HT_SALES_TAX')) {
+      add(daily.salesCollection, day, e.income_amount);
+    // 현금입금: income > 0 AND NOT 가수금/매출
+    } else if (e.income_amount > 0 && e.category !== '가수금' && e.category !== '매출') {
+      add(daily.cashIncome, day, e.income_amount);
+    }
+
+    // 외상대+고정비: expense > 0 AND NOT 가수금 (카드지출은 결제예정일 기준)
+    if (e.expense_amount > 0 && e.category !== '가수금') {
+      const payDay = e.category === '카드지출'
+        ? (CARD_PAYMENT_DAY[`${e.company_code}:${e.source_type}`] ?? day)
+        : day;
+      add(daily.payablesAndFixedCosts, payDay, e.expense_amount);
+    }
+  }
+
+  const cashIncomeTotal            = Object.values(daily.cashIncome).reduce((s, v) => s + v, 0);
+  const salesCollectionTotal       = Object.values(daily.salesCollection).reduce((s, v) => s + v, 0);
+  const payablesAndFixedCostsTotal = Object.values(daily.payablesAndFixedCosts).reduce((s, v) => s + v, 0);
+
+  return {
+    month,
+    days: Array.from({ length: daysInMonth }, (_, i) => i + 1),
+    daily,
+    totals: {
+      cashIncomeTotal,
+      salesCollectionTotal,
+      payablesAndFixedCostsTotal,
+      requiredMoney: cashIncomeTotal + salesCollectionTotal - payablesAndFixedCostsTotal,
+    },
+  };
+}

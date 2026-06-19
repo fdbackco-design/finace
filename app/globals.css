@@ -187,6 +187,93 @@ tbody tr:hover td {
   color: #1e293b;
 }
 
+/* ── Summary section ──────────────────────────── */
+.summary-section {
+  margin-bottom: 24px;
+}
+
+/* 4개 요약 카드 */
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+@media (max-width: 800px) {
+  .summary-cards { grid-template-columns: repeat(2, 1fr); }
+}
+.summary-card {
+  border-radius: 8px;
+  padding: 14px 16px;
+  border: 1px solid #e2e8f0;
+}
+.summary-card-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.summary-card-value {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.summary-card-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* 카드 배경 색상 */
+.summary-cash     { background: #f0fdf4; border-color: #bbf7d0; }
+.summary-sales    { background: #fff7ed; border-color: #fed7aa; }
+.summary-payables { background: #eff6ff; border-color: #bfdbfe; }
+.summary-required { background: #fefce8; border-color: #fde68a; }
+.summary-required-neg { background: #fef2f2; border-color: #fecaca; }
+.summary-required-pos { background: #f0fdf4; border-color: #bbf7d0; }
+
+/* 일별 요약 테이블 고정 열 */
+.sum-col-label {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  min-width: 120px;
+  max-width: 120px;
+  font-weight: 700;
+  font-size: 12px;
+  border-right: 1px solid #e2e8f0 !important;
+  background: inherit;
+}
+.sum-col-total {
+  position: sticky;
+  left: 120px;
+  z-index: 3;
+  min-width: 120px;
+  max-width: 120px;
+  font-weight: 700;
+  border-right: 2px solid #cbd5e1 !important;
+  background: inherit;
+}
+.pivot-table thead .sum-col-label,
+.pivot-table thead .sum-col-total {
+  z-index: 5;
+  background: #f8fafc;
+}
+
+/* 요약 행 배경 */
+.sum-row-cash td      { background: #f0fdf4; }
+.sum-row-sales td     { background: #fff7ed; }
+.sum-row-payables td  { background: #eff6ff; }
+.sum-row-required td  { background: #fefce8; font-weight: 700; }
+
+.sum-row-cash:hover td     { background: #dcfce7 !important; }
+.sum-row-sales:hover td    { background: #fed7aa !important; }
+.sum-row-payables:hover td { background: #bfdbfe !important; }
+.sum-row-required:hover td { background: #fde68a !important; }
+
 /* ── Month nav ────────────────────────────────── */
 .month-nav {
   display: flex;

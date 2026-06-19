@@ -2,7 +2,13 @@ export const dynamic    = 'force-dynamic';
 export const revalidate = 0;
 
 import { fetchTable } from '@/src/lib/supabase/server';
-import { buildMonthlyPivot, type DbEntry, type CashflowMonthlyRow } from '@/src/lib/cashflow/monthlyPivot';
+import {
+  buildMonthlyPivot,
+  buildCashflowMonthlySummary,
+  type DbEntry,
+  type CashflowMonthlyRow,
+  type CashflowMonthlySummary,
+} from '@/src/lib/cashflow/monthlyPivot';
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
 
@@ -51,6 +57,120 @@ function DbErrWarn({ message, code }: { message: string; code?: string }) {
       <strong>⚠️ {noTable ? 'cashflow_entries 테이블 없음 — migration 실행 여부를 확인하세요.' : 'DB 조회 오류'}</strong>
       {!noTable && <><br /><code style={{ fontSize: 11 }}>{message}</code></>}
       <br />진단: <a href="/api/db-check" target="_blank" style={{ color: '#991b1b' }}>/api/db-check</a>
+    </div>
+  );
+}
+
+// ── 월간 요약 영역 ────────────────────────────────────────────────────────────
+
+function SummarySection({ summary, daysInMonth, year, month }: {
+  summary: CashflowMonthlySummary;
+  daysInMonth: number;
+  year: number;
+  month: number;
+}) {
+  const dayNums  = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const weekdays = dayNums.map(d => new Date(year, month - 1, d).getDay());
+  const { totals, daily } = summary;
+
+  function fmtNum(v: number): string {
+    return v === 0 ? '-' : new Intl.NumberFormat('ko-KR').format(Math.abs(v));
+  }
+  function fmtSigned(v: number): string {
+    if (v === 0) return '-';
+    const abs = new Intl.NumberFormat('ko-KR').format(Math.abs(v));
+    return v < 0 ? `-${abs}` : abs;
+  }
+
+  // 일별 필요한 돈
+  const dailyRequired: Record<number, number> = {};
+  for (let d = 1; d <= daysInMonth; d++) {
+    const req = (daily.cashIncome[d] ?? 0) + (daily.salesCollection[d] ?? 0) - (daily.payablesAndFixedCosts[d] ?? 0);
+    if (req !== 0) dailyRequired[d] = req;
+  }
+
+  const reqCls = totals.requiredMoney < 0 ? 'amt-expense' : totals.requiredMoney > 0 ? 'amt-income' : '';
+
+  return (
+    <div className="summary-section">
+      {/* 월간 요약 카드 4개 */}
+      <div className="summary-cards">
+        <div className="summary-card summary-cash">
+          <div className="summary-card-label">현금입금 합계</div>
+          <div className="summary-card-value amt-income">{fmtNum(totals.cashIncomeTotal)}</div>
+        </div>
+        <div className="summary-card summary-sales">
+          <div className="summary-card-label">매출수금 합계</div>
+          <div className="summary-card-value amt-income">{fmtNum(totals.salesCollectionTotal)}</div>
+        </div>
+        <div className="summary-card summary-payables">
+          <div className="summary-card-label">외상대+고정비 합계</div>
+          <div className="summary-card-value amt-expense">{fmtNum(totals.payablesAndFixedCostsTotal)}</div>
+        </div>
+        <div className={`summary-card summary-required ${totals.requiredMoney < 0 ? 'summary-required-neg' : 'summary-required-pos'}`}>
+          <div className="summary-card-label">필요한 돈</div>
+          <div className={`summary-card-value ${reqCls}`}>{fmtSigned(totals.requiredMoney)}</div>
+          <div className="summary-card-sub">
+            {totals.requiredMoney < 0 ? '자금 부족' : totals.requiredMoney > 0 ? '여유 자금' : ''}
+          </div>
+        </div>
+      </div>
+
+      {/* 일별 요약 테이블 */}
+      <div className="pivot-wrap" style={{ marginBottom: 20 }}>
+        <table className="pivot-table">
+          <thead>
+            <tr>
+              <th className="sum-col-label">구분</th>
+              <th className="sum-col-total num">합계</th>
+              {dayNums.map(d => (
+                <th key={d} className={`pivot-day num${weekdays[d - 1] === 0 ? ' pivot-day-sun' : weekdays[d - 1] === 6 ? ' pivot-day-sat' : ''}`}>
+                  {d}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="sum-row-cash">
+              <td className="sum-col-label">현금입금</td>
+              <td className="sum-col-total num amt-income">{fmtNum(totals.cashIncomeTotal)}</td>
+              {dayNums.map(d => {
+                const v = daily.cashIncome[d];
+                return <td key={d} className="pivot-day num">{v ? fmtNum(v) : ''}</td>;
+              })}
+            </tr>
+            <tr className="sum-row-sales">
+              <td className="sum-col-label">매출수금</td>
+              <td className="sum-col-total num amt-income">{fmtNum(totals.salesCollectionTotal)}</td>
+              {dayNums.map(d => {
+                const v = daily.salesCollection[d];
+                return <td key={d} className="pivot-day num">{v ? fmtNum(v) : ''}</td>;
+              })}
+            </tr>
+            <tr className="sum-row-payables">
+              <td className="sum-col-label">외상대+고정비</td>
+              <td className="sum-col-total num amt-expense">{fmtNum(totals.payablesAndFixedCostsTotal)}</td>
+              {dayNums.map(d => {
+                const v = daily.payablesAndFixedCosts[d];
+                return <td key={d} className="pivot-day num">{v ? fmtNum(v) : ''}</td>;
+              })}
+            </tr>
+            <tr className="sum-row-required">
+              <td className="sum-col-label sum-row-required-label">필요한 돈</td>
+              <td className={`sum-col-total num ${reqCls}`}>{fmtSigned(totals.requiredMoney)}</td>
+              {dayNums.map(d => {
+                const v = dailyRequired[d];
+                if (v === undefined) return <td key={d} className="pivot-day" />;
+                return (
+                  <td key={d} className={`pivot-day num ${v < 0 ? 'amt-expense' : 'amt-income'}`}>
+                    {fmtSigned(v)}
+                  </td>
+                );
+              })}
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -151,6 +271,9 @@ export default async function CashflowPage({ searchParams }: Props) {
   );
 
   const pivotRows = result.status === 'ok' ? buildMonthlyPivot(result.data, daysInMonth) : [];
+  const summary   = result.status === 'ok' && result.data.length > 0
+    ? buildCashflowMonthlySummary(result.data, monthStr(year, month), daysInMonth)
+    : null;
 
   return (
     <div className="page" style={{ maxWidth: '100%' }}>
@@ -186,6 +309,7 @@ export default async function CashflowPage({ searchParams }: Props) {
 
       {result.status === 'ok' && result.data.length > 0 && (
         <>
+          {summary && <SummarySection summary={summary} daysInMonth={daysInMonth} year={year} month={month} />}
           <p style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
             {result.data.length}건 · {pivotRows.length}개 행
             &nbsp;·&nbsp;
