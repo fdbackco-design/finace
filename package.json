@@ -3,18 +3,29 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "parse":     "ts-node scripts/parse-all.ts",
-    "match":     "ts-node scripts/match-all.ts",
-    "db:import": "ts-node scripts/import-to-supabase.ts",
-    "db:check":  "ts-node scripts/check-db.ts"
+    "dev":       "next dev",
+    "build":     "next build",
+    "start":     "next start",
+    "lint":      "next lint",
+    "parse":     "ts-node --project tsconfig.scripts.json scripts/parse-all.ts",
+    "match":     "ts-node --project tsconfig.scripts.json scripts/match-all.ts",
+    "db:import": "ts-node --project tsconfig.scripts.json scripts/import-to-supabase.ts",
+    "db:check":  "ts-node --project tsconfig.scripts.json scripts/check-db.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
     "dotenv": "^17.4.2",
+    "next": "^16.2.9",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.0"
   }

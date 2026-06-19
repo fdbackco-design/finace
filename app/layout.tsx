@@ -1,0 +1,23 @@
+import type { Metadata } from 'next';
+import './globals.css';
+
+export const metadata: Metadata = {
+  title: '자금수지현황 관리 시스템',
+  description: '피드백 · 상생 · 슛문 자금 관리',
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="ko">
+      <body>
+        <nav className="nav">
+          <a href="/" className="nav-brand">자금수지현황 관리 시스템</a>
+          <a href="/cashflow"  className="nav-link">자금수지현황표</a>
+          <a href="/unmatched" className="nav-link">미매칭 검토</a>
+          <a href="/dashboard" className="nav-link">대시보드</a>
+        </nav>
+        {children}
+      </body>
+    </html>
+  );
+}
