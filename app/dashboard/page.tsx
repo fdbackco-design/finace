@@ -53,7 +53,12 @@ export default async function DashboardPage() {
       <div className="page">
         <h1 className="page-title">대시보드</h1>
         <div className="env-warn">
-          ⚠️ Supabase 환경변수(NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)를 설정해주세요.
+          <strong>⚠️ Supabase 환경변수가 설정되지 않았습니다.</strong><br />
+          Vercel Dashboard → Settings → Environment Variables 에 아래 3개를 등록하고 <strong>Redeploy</strong> 하세요.<br /><br />
+          &nbsp;• NEXT_PUBLIC_SUPABASE_URL<br />
+          &nbsp;• NEXT_PUBLIC_SUPABASE_ANON_KEY<br />
+          &nbsp;• SUPABASE_SERVICE_ROLE_KEY<br /><br />
+          등록 확인: <a href="/api/env-check" target="_blank" style={{ color: '#92400e', textDecoration: 'underline' }}>/api/env-check</a>
         </div>
       </div>
     );
