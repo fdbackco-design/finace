@@ -116,19 +116,19 @@ for (const t of entryTests) {
   }
 }
 
-// ── /unmatched 필터 규칙 테스트 ────────────────────────────────────────────
+// ── /unmatched 필터 규칙 테스트 (category='카드지출' 전체 제외) ───────────
 console.log('\n=== /unmatched 필터 테스트 ===\n');
 
-const sources = [
-  { source: 'CARD_IBK',  shouldHide: true,  desc: 'CARD_IBK → 미매칭 화면에서 숨김' },
-  { source: 'CARD_WOORI',shouldHide: false, desc: 'CARD_WOORI → 미매칭 화면에 표시' },
-  { source: 'BANK_IBK',  shouldHide: false, desc: 'BANK_IBK → 미매칭 화면에 표시'  },
-  { source: 'BANK_WOORI',shouldHide: false, desc: 'BANK_WOORI → 미매칭 화면에 표시' },
-  { source: 'HT_PURCHASE_TAX', shouldHide: false, desc: 'HT_PURCHASE_TAX → 미매칭 화면에 표시' },
+const categoryTests = [
+  { category: '카드지출', shouldHide: true,  desc: '카드지출(CARD_IBK)  → 미매칭 화면에서 숨김' },
+  { category: '카드지출', shouldHide: true,  desc: '카드지출(CARD_WOORI) → 미매칭 화면에서 숨김' },
+  { category: '매입',     shouldHide: false, desc: '매입      → 미매칭 화면에 표시' },
+  { category: '기타지출', shouldHide: false, desc: '기타지출   → 미매칭 화면에 표시' },
+  { category: '기타수입', shouldHide: false, desc: '기타수입   → 미매칭 화면에 표시' },
 ];
 
-for (const t of sources) {
-  const isHidden = t.source === 'CARD_IBK';
+for (const t of categoryTests) {
+  const isHidden = t.category === '카드지출';
   const ok = isHidden === t.shouldHide;
   if (ok) {
     console.log(`✅ ${t.desc}`);

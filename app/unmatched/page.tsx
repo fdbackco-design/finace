@@ -35,7 +35,7 @@ export default async function UnmatchedPage() {
         .from('cashflow_entries')
         .select('id,company_code,entry_date,vendor_name,category,sub_category,income_amount,expense_amount,match_status,match_reason,source_type')
         .in('match_status', ['MANUAL_REVIEW', 'UNMATCHED'])
-        .neq('source_type', 'CARD_IBK')   // 카드 내역은 자금수지현황에서 별도 관리
+        .neq('category', '카드지출')       // 카드 내역은 자금수지현황에서 별도 관리
         .order('entry_date', { ascending: false })
         .limit(200) as any,
   );
