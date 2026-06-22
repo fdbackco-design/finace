@@ -1,22 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { AUTH_COOKIE, verifySessionToken } from '@/src/lib/auth/session';
 
 /**
- * Basic Auth 미들웨어
+ * 인증 프록시 — 쿠키 세션 기반
  *
- * 보호 대상 경로:
- *   /upload, /cashflow, /dashboard, /unmatched, /transactions
- *   /api/db-check
+ * 보호 대상 경로 접근 시 미인증이면 /login 으로 리다이렉트
+ * (브라우저 Basic Auth 다이얼로그 대신 커스텀 로그인 페이지 사용)
  *
- * 필요 환경변수 (Vercel Environment Variables에 등록):
+ * 환경변수:
  *   ADMIN_USERNAME — 관리자 아이디
  *   ADMIN_PASSWORD — 관리자 비밀번호
- *
- * 두 변수 중 하나라도 없으면 해당 경로는 503(서비스 불가)으로 차단.
- *
- * TODO (운영 강화 시):
- *   - Supabase Auth / NextAuth 로그인 세션으로 교체
- *   - IP 화이트리스트 (Vercel Edge Config 활용)
- *   - Rate limiting (Upstash Redis 등)
  */
 
 const PROTECTED_PATHS = [
@@ -25,6 +18,8 @@ const PROTECTED_PATHS = [
   '/dashboard',
   '/unmatched',
   '/transactions',
+  '/vendors',
+  '/api/upload',
   '/api/db-check',
 ];
 
@@ -33,72 +28,54 @@ function isProtected(pathname: string): boolean {
 }
 
 export function proxy(req: NextRequest) {
-  if (!isProtected(req.nextUrl.pathname)) {
+  const { pathname } = req.nextUrl;
+
+  // 로그인 페이지: 이미 인증됐으면 홈으로
+  if (pathname === '/login') {
+    const token = req.cookies.get(AUTH_COOKIE)?.value;
+    if (verifySessionToken(token)) {
+      return NextResponse.redirect(new URL('/', req.url));
+    }
     return NextResponse.next();
   }
 
-  const username = process.env.ADMIN_USERNAME;
-  const password = process.env.ADMIN_PASSWORD;
+  if (!isProtected(pathname)) {
+    return NextResponse.next();
+  }
 
-  // 환경변수 미설정 시 서비스 불가
-  if (!username || !password) {
+  if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
     return new NextResponse(
       '서버 설정 오류: ADMIN_USERNAME / ADMIN_PASSWORD 환경변수를 등록해 주세요.',
-      {
-        status: 503,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-      },
+      { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } },
     );
   }
 
-  const authHeader = req.headers.get('authorization') ?? '';
-
-  if (authHeader.startsWith('Basic ')) {
-    const encoded = authHeader.slice(6);
-    let decoded: string;
-    try {
-      decoded = atob(encoded);
-    } catch {
-      decoded = '';
-    }
-
-    const colonIdx    = decoded.indexOf(':');
-    const inputUser   = colonIdx >= 0 ? decoded.slice(0, colonIdx)      : decoded;
-    const inputPass   = colonIdx >= 0 ? decoded.slice(colonIdx + 1)     : '';
-
-    // 타이밍 공격 방지: 두 문자열을 항상 동일 길이 비교
-    if (safeEqual(inputUser, username) && safeEqual(inputPass, password)) {
-      return NextResponse.next();
-    }
+  const token = req.cookies.get(AUTH_COOKIE)?.value;
+  if (verifySessionToken(token)) {
+    return NextResponse.next();
   }
 
-  // 인증 실패 → 브라우저 Basic Auth 다이얼로그 표시
-  return new NextResponse('인증이 필요합니다', {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': 'Basic realm="Finance Dashboard", charset="UTF-8"',
-      'Content-Type':     'text/plain; charset=utf-8',
-    },
-  });
-}
-
-/** 길이 차이를 숨기는 상수 시간 문자열 비교 */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  // API 요청은 JSON 401
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.json({ ok: false, error: '인증이 필요합니다.' }, { status: 401 });
   }
-  return diff === 0;
+
+  // 페이지 요청 → 로그인으로 리다이렉트
+  const loginUrl = new URL('/login', req.url);
+  loginUrl.searchParams.set('next', pathname + req.nextUrl.search);
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {
   matcher: [
+    '/login',
     '/upload/:path*',
     '/cashflow/:path*',
     '/dashboard/:path*',
     '/unmatched/:path*',
     '/transactions/:path*',
+    '/vendors/:path*',
+    '/api/upload/:path*',
     '/api/db-check/:path*',
   ],
 };

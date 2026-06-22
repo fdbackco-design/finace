@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { LogoutButton } from './LogoutButton';
 
 export const metadata: Metadata = {
   title: '자금수지현황 관리 시스템',
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <a href="/unmatched"    className="nav-link">미매칭 검토</a>
           <a href="/vendors"      className="nav-link">거래처 관리</a>
           <a href="/dashboard"    className="nav-link">대시보드</a>
+          <LogoutButton />
         </nav>
         {children}
       </body>
