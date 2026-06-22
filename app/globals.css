@@ -128,6 +128,51 @@ tbody tr:hover td {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── 미매칭 검토 페이지 ───────────────────────── */
+.page-unmatched {
+  max-width: none;
+}
+
+.unmatched-table-wrap {
+  overflow-x: auto;
+}
+
+.unmatched-table {
+  width: max-content;
+  min-width: 100%;
+}
+
+.unmatched-table .col-status,
+.unmatched-table .col-company,
+.unmatched-table .col-date,
+.unmatched-table .col-amount {
+  white-space: nowrap;
+}
+
+.unmatched-table .col-date {
+  font-variant-numeric: tabular-nums;
+}
+
+.unmatched-table .col-source {
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.unmatched-table .col-reason {
+  white-space: nowrap;
+  color: #475569;
+  font-size: 12px;
+  min-width: 280px;
+}
+
+.unmatched-table .col-vendor {
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── Badges ───────────────────────────────────── */
 .badge {
   display: inline-block;

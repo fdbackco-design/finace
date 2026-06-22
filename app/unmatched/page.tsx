@@ -2,6 +2,7 @@ export const dynamic   = 'force-dynamic';
 export const revalidate = 0;
 
 import { fetchTable } from '@/src/lib/supabase/server';
+import { formatMatchReason } from '@/src/lib/matching/formatMatchReason';
 
 type UnmatchedRow = {
   id: string;
@@ -45,7 +46,7 @@ export default async function UnmatchedPage() {
   const unmatchCount = data.filter(e => e.match_status === 'UNMATCHED').length;
 
   return (
-    <div className="page">
+    <div className="page page-unmatched">
       <h1 className="page-title">미매칭 검토</h1>
       <p className="page-sub">MANUAL_REVIEW + UNMATCHED 항목 (최대 200건)</p>
 
@@ -91,39 +92,37 @@ export default async function UnmatchedPage() {
               </div>
             </div>
           ) : (
-            <div className="table-wrap">
-              <table>
+            <div className="table-wrap unmatched-table-wrap">
+              <table className="unmatched-table">
                 <thead>
                   <tr>
-                    <th>상태</th>
-                    <th>회사</th>
-                    <th>날짜</th>
-                    <th>거래처</th>
-                    <th>구분</th>
-                    <th>원천</th>
-                    <th className="num">입금액</th>
-                    <th className="num">지출액</th>
-                    <th>매칭근거</th>
+                    <th className="col-status">상태</th>
+                    <th className="col-company">회사</th>
+                    <th className="col-date">날짜</th>
+                    <th className="col-vendor">거래처</th>
+                    <th className="col-category">구분</th>
+                    <th className="col-source">원천</th>
+                    <th className="num col-amount">입금액</th>
+                    <th className="num col-amount">지출액</th>
+                    <th className="col-reason">매칭근거</th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.data.map((e) => (
                     <tr key={e.id}>
-                      <td>
+                      <td className="col-status">
                         <span className={`badge ${e.match_status === 'MANUAL_REVIEW' ? 'badge-yellow' : 'badge-red'}`}>
                           {e.match_status === 'MANUAL_REVIEW' ? '검토필요' : '미매칭'}
                         </span>
                       </td>
-                      <td>{COMPANY_LABEL[e.company_code] ?? e.company_code}</td>
-                      <td>{e.entry_date}</td>
-                      <td>{e.vendor_name}</td>
-                      <td>{e.category}</td>
-                      <td style={{ color: '#64748b', fontSize: 12 }}>{e.source_type}</td>
-                      <td className="num" style={{ color: '#16a34a' }}>{fmt(e.income_amount)}</td>
-                      <td className="num" style={{ color: '#dc2626' }}>{fmt(e.expense_amount)}</td>
-                      <td style={{ color: '#64748b', fontSize: 12, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {e.match_reason}
-                      </td>
+                      <td className="col-company">{COMPANY_LABEL[e.company_code] ?? e.company_code}</td>
+                      <td className="col-date">{e.entry_date}</td>
+                      <td className="col-vendor">{e.vendor_name}</td>
+                      <td className="col-category">{e.category}</td>
+                      <td className="col-source">{e.source_type}</td>
+                      <td className="num col-amount" style={{ color: '#16a34a' }}>{fmt(e.income_amount)}</td>
+                      <td className="num col-amount" style={{ color: '#dc2626' }}>{fmt(e.expense_amount)}</td>
+                      <td className="col-reason">{formatMatchReason(e.match_reason)}</td>
                     </tr>
                   ))}
                 </tbody>
