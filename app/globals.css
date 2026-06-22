@@ -133,6 +133,51 @@ tbody tr:hover td {
   max-width: none;
 }
 
+.status-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.status-filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.status-filter-tab:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.status-filter-tab-active {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.status-filter-count {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #1e293b;
+}
+
+.status-filter-tab-active .status-filter-count {
+  color: #1d4ed8;
+}
+
 .unmatched-table-wrap {
   overflow-x: auto;
 }

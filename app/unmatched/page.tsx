@@ -28,7 +28,20 @@ function fmt(n: number) {
   return n > 0 ? new Intl.NumberFormat('ko-KR').format(n) : '';
 }
 
-export default async function UnmatchedPage() {
+type StatusFilter = 'all' | 'MANUAL_REVIEW' | 'UNMATCHED';
+
+function parseStatusFilter(raw: string | undefined): StatusFilter {
+  if (raw === 'MANUAL_REVIEW' || raw === 'UNMATCHED') return raw;
+  return 'all';
+}
+
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+export default async function UnmatchedPage({ searchParams }: Props) {
+  const params       = await searchParams;
+  const statusRaw    = typeof params.status === 'string' ? params.status : undefined;
+  const statusFilter = parseStatusFilter(statusRaw);
+
   const result = await fetchTable<UnmatchedRow>(
     'cashflow_entries',
     (client) =>
@@ -44,11 +57,27 @@ export default async function UnmatchedPage() {
   const data         = result.status === 'ok' ? result.data : [];
   const manualCount  = data.filter(e => e.match_status === 'MANUAL_REVIEW').length;
   const unmatchCount = data.filter(e => e.match_status === 'UNMATCHED').length;
+  const totalCount   = data.length;
+  const displayData  = statusFilter === 'all'
+    ? data
+    : data.filter(e => e.match_status === statusFilter);
+
+  const filterTabs: { key: StatusFilter; label: string; count: number; color?: string }[] = [
+    { key: 'all',            label: '전체',     count: totalCount },
+    { key: 'MANUAL_REVIEW',  label: '검토필요', count: manualCount,  color: '#d97706' },
+    { key: 'UNMATCHED',      label: '미매칭',   count: unmatchCount, color: '#dc2626' },
+  ];
+
+  const subLabel = statusFilter === 'all'
+    ? `검토필요 + 미매칭 항목 (최대 200건)`
+    : statusFilter === 'MANUAL_REVIEW'
+      ? `검토필요 항목만 표시 (최대 200건)`
+      : `미매칭 항목만 표시 (최대 200건)`;
 
   return (
     <div className="page page-unmatched">
       <h1 className="page-title">미매칭 검토</h1>
-      <p className="page-sub">MANUAL_REVIEW + UNMATCHED 항목 (최대 200건)</p>
+      <p className="page-sub">{subLabel}</p>
 
       {result.status === 'env_missing' && (
         <div className="env-warn">
@@ -73,22 +102,42 @@ export default async function UnmatchedPage() {
 
       {result.status === 'ok' && (
         <>
-          <div className="card-grid" style={{ marginBottom: 20 }}>
-            <div className="card">
-              <p className="card-label">수동검토 필요</p>
-              <p className="card-value" style={{ color: '#d97706' }}>{manualCount}</p>
-            </div>
-            <div className="card">
-              <p className="card-label">미매칭</p>
-              <p className="card-value" style={{ color: '#dc2626' }}>{unmatchCount}</p>
-            </div>
+          <div className="status-filter">
+            {filterTabs.map(tab => {
+              const active = statusFilter === tab.key;
+              const href   = tab.key === 'all' ? '/unmatched' : `/unmatched?status=${tab.key}`;
+              return (
+                <a
+                  key={tab.key}
+                  href={href}
+                  className={`status-filter-tab${active ? ' status-filter-tab-active' : ''}`}
+                >
+                  <span className="status-filter-label">{tab.label}</span>
+                  <span
+                    className="status-filter-count"
+                    style={!active && tab.color ? { color: tab.color } : undefined}
+                  >
+                    {tab.count}
+                  </span>
+                </a>
+              );
+            })}
           </div>
 
-          {result.data.length === 0 ? (
+          {totalCount === 0 ? (
             <div className="table-wrap">
               <div className="empty">
                 <p className="empty-title">미매칭 항목이 없습니다</p>
                 <p>모든 거래가 매칭 완료됐거나, 아직 <code>npm run db:import</code>를 실행하지 않았습니다.</p>
+              </div>
+            </div>
+          ) : displayData.length === 0 ? (
+            <div className="table-wrap">
+              <div className="empty">
+                <p className="empty-title">해당 상태의 항목이 없습니다</p>
+                <p>
+                  <a href="/unmatched">전체 보기</a>로 돌아가거나 다른 상태를 선택하세요.
+                </p>
               </div>
             </div>
           ) : (
@@ -108,7 +157,7 @@ export default async function UnmatchedPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {result.data.map((e) => (
+                  {displayData.map((e) => (
                     <tr key={e.id}>
                       <td className="col-status">
                         <span className={`badge ${e.match_status === 'MANUAL_REVIEW' ? 'badge-yellow' : 'badge-red'}`}>
