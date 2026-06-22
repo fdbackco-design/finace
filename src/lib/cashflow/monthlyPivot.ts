@@ -5,6 +5,7 @@ export type DbEntry = {
   company_code: string;
   entry_date: string;          // YYYY-MM-DD
   vendor_name: string;
+  vendor_name_mapped: string | null;
   category: string;
   sub_category: string | null;
   income_amount: number;
@@ -124,13 +125,14 @@ export function buildMonthlyPivot(entries: DbEntry[], daysInMonth: number): Cash
     // ── 일반 항목 ──────────────────────────────────────────────────────────
     } else {
       const check = checkLabel(e.company_code, e.category);
-      // 같은 회사·구분·거래처 → 한 줄
-      const key = `${check}::${e.company_code}::${e.category}::${e.vendor_name}`;
+      const displayName = e.vendor_name_mapped ?? e.vendor_name;
+      // 매핑된 거래처명 기준으로 그룹핑 (여러 지점/원본명 → 한 줄)
+      const key = `${check}::${e.company_code}::${e.category}::${displayName}`;
 
       const row = upsert(key, {
         check,
         category:   e.category,
-        vendorName: e.vendor_name,
+        vendorName: displayName,
       });
       addToRow(row, day, net, e.id);
     }

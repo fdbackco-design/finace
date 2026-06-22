@@ -453,7 +453,7 @@ export default async function CashflowPage({ searchParams }: Props) {
     (client) =>
       client
         .from('cashflow_entries')
-        .select('id,company_code,entry_date,vendor_name,category,sub_category,income_amount,expense_amount,match_status,source_type,payment_source_type')
+        .select('id,company_code,entry_date,vendor_name,vendor_name_mapped,category,sub_category,income_amount,expense_amount,match_status,source_type,payment_source_type')
         .gte('entry_date', startDate)
         .lte('entry_date', endDate)
         .order('entry_date', { ascending: true }) as any,

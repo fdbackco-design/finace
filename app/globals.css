@@ -523,6 +523,212 @@ tbody tr:hover td {
   color: #475569;
 }
 
+/* ── 공통 폼 요소 ─────────────────────────────── */
+.form-input {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: #1e293b;
+  background: #fff;
+  outline: none;
+  width: 100%;
+}
+.form-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.12);
+}
+.form-label {
+  font-size: 13px;
+  color: #475569;
+  min-width: 100px;
+  flex-shrink: 0;
+}
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.form-error {
+  color: #dc2626;
+  font-size: 12px;
+}
+.required { color: #dc2626; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background 0.12s;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary   { background: #3b82f6; color: #fff; }
+.btn-primary:hover:not(:disabled)   { background: #2563eb; }
+.btn-secondary { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
+.btn-secondary:hover:not(:disabled) { background: #e2e8f0; }
+.btn-ghost     { background: transparent; color: #64748b; border: 1px solid #e2e8f0; }
+.btn-ghost:hover:not(:disabled)     { background: #f8fafc; }
+.btn-danger    { background: transparent; color: #dc2626; border: 1px solid #fca5a5; }
+.btn-danger:hover:not(:disabled)    { background: #fef2f2; }
+.btn-sm { padding: 4px 10px; font-size: 12px; border-radius: 5px; cursor: pointer; font-weight: 600; border: 1px solid transparent; }
+.btn-sm.btn-primary   { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.btn-sm.btn-primary:hover:not(:disabled)   { background: #2563eb; }
+.btn-sm.btn-ghost     { background: transparent; color: #64748b; border-color: #e2e8f0; }
+.btn-sm.btn-ghost:hover:not(:disabled)     { background: #f8fafc; }
+.btn-sm.btn-danger    { background: transparent; color: #dc2626; border-color: #fca5a5; }
+.btn-sm.btn-danger:hover:not(:disabled)    { background: #fef2f2; }
+.btn-icon { background: transparent; border: none; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+.btn-danger-icon { color: #94a3b8; }
+.btn-danger-icon:hover:not(:disabled) { color: #dc2626; background: #fef2f2; }
+
+/* ── 거래처 관리 페이지 ───────────────────────── */
+.vendor-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 20px;
+}
+.vendor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.vendor-add-form {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.vendor-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.vendor-count {
+  font-size: 12px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.vendor-list-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 4px;
+}
+.vendor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vendor-row {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 16px;
+  transition: border-color 0.1s;
+}
+.vendor-row:hover {
+  border-color: #94a3b8;
+}
+.vendor-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.vendor-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.vendor-actions {
+  display: flex;
+  gap: 6px;
+}
+.vendor-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.vendor-alias-toggle {
+  cursor: pointer;
+  color: #64748b;
+  user-select: none;
+}
+.vendor-alias-toggle:hover { color: #1e293b; }
+.vendor-created-at {
+  margin-left: auto;
+}
+.vendor-aliases {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.alias-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.alias-type { flex: 1; display: flex; gap: 6px; flex-wrap: wrap; }
+.alias-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.alias-tag-biz  { background: #eff6ff; color: #1d4ed8; }
+.alias-tag-name { background: #f1f5f9; color: #334155; }
+.alias-add-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  border-top: 1px dashed #e2e8f0;
+  margin-top: 4px;
+}
+.alias-add-form .form-input {
+  flex: 1;
+  min-width: 160px;
+}
+.vendor-empty {
+  padding: 48px;
+  text-align: center;
+  color: #94a3b8;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.remap-result {
+  font-size: 13px;
+  color: #0f766e;
+  font-weight: 600;
+}
+
 /* ── Empty / Error states ─────────────────────── */
 .empty {
   padding: 48px;
