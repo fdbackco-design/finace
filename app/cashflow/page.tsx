@@ -188,27 +188,44 @@ type CardExpenseGroup = {
   transactions: Array<{ id: string; date: string; vendorName: string; description: string | null; amount: number }>;
 };
 
-function buildCardExpenseGroups(entries: DbEntry[]): CardExpenseGroup[] {
+// card_transactions 직접 조회용 타입
+// (CARD_WOORI는 cashflow_entries.entry_date가 익월 결제일이므로 used_date 기준으로 별도 조회)
+type CardTxRow = {
+  id:           string;
+  used_date:    string | null;
+  merchant_name: string | null;
+  amount:       number;
+  card_label:   string | null;
+  company_code: string;
+  source_type:  string;
+};
+
+const VALID_CARD_LABELS = new Set<string>([
+  '상생 우리카드', '상생 기업카드', '피드백 우리카드', '피드백 기업카드',
+]);
+
+function buildCardExpenseGroups(rows: CardTxRow[]): CardExpenseGroup[] {
   const map = new Map<CardLabel, CardExpenseGroup>();
 
-  for (const e of entries) {
-    if (e.category !== '카드지출') continue;
-    if (e.expense_amount <= 0) continue;
-
-    const label = cardLabelFromEntry(e.company_code, e.source_type);
+  for (const c of rows) {
+    // card_label 컬럼 우선, 없으면 company_code+source_type fallback
+    const label: CardLabel | null =
+      (c.card_label && VALID_CARD_LABELS.has(c.card_label)
+        ? c.card_label as CardLabel
+        : cardLabelFromEntry(c.company_code, c.source_type));
     if (!label) continue;
 
     if (!map.has(label)) {
       map.set(label, { label, totalAmount: 0, transactions: [] });
     }
     const g = map.get(label)!;
-    g.totalAmount += e.expense_amount;
+    g.totalAmount += c.amount;
     g.transactions.push({
-      id:          e.id,
-      date:        e.entry_date,
-      vendorName:  e.vendor_name,
-      description: e.sub_category,
-      amount:      e.expense_amount,
+      id:          c.id,
+      date:        c.used_date ?? '',
+      vendorName:  c.merchant_name ?? '',
+      description: null,
+      amount:      c.amount,
     });
   }
 
@@ -364,11 +381,25 @@ export default async function CashflowPage({ searchParams }: Props) {
         .order('entry_date', { ascending: true }) as any,
   );
 
+  // card_transactions 직접 조회: CARD_WOORI는 entry_date가 익월(결제일)이므로
+  // used_date(사용일) 기준으로 별도 조회해야 당월 카드 내역이 표시됨
+  const cardTxResult = await fetchTable<CardTxRow>(
+    'card_transactions',
+    (client) =>
+      client
+        .from('card_transactions')
+        .select('id,used_date,merchant_name,amount,card_label,company_code,source_type')
+        .gte('used_date', startDate)
+        .lte('used_date', endDate)
+        .eq('is_cancelled', false)
+        .gt('amount', 0) as any,
+  );
+
   const pivotRows    = result.status === 'ok' ? buildMonthlyPivot(result.data, daysInMonth) : [];
   const summary      = result.status === 'ok' && result.data.length > 0
     ? buildCashflowMonthlySummary(result.data, monthStr(year, month), daysInMonth)
     : null;
-  const cardGroups   = result.status === 'ok' ? buildCardExpenseGroups(result.data) : [];
+  const cardGroups   = cardTxResult.status === 'ok' ? buildCardExpenseGroups(cardTxResult.data) : [];
 
   return (
     <div className="page" style={{ maxWidth: '100%' }}>

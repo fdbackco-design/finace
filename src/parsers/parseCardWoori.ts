@@ -109,8 +109,14 @@ export function parseCardWoori(
       // 이용카드 식별값(cardLast4)으로 분류: 9727=피드백, 6313=상생
       const classification = classifyCard({ source: 'CARD_WOORI', cardRef: cardLast4, cardNo });
 
+      // 카드번호(9727/6313) 기준 회사 결정: 파일명 파라미터보다 우선 적용
+      const effectiveCompany: CompanyCode =
+        classification?.companyName === '피드백' ? 'feedback'  :
+        classification?.companyName === '상생'   ? 'sangsaeng' :
+        company;
+
       records.push({
-        company,
+        company: effectiveCompany,
         sourceType: 'CARD_WOORI',
         usedAt,
         merchantName,
