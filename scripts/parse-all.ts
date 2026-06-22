@@ -18,11 +18,7 @@ const BASE_DIR   = path.resolve(__dirname, '..');
 const ASSET_DIR  = path.join(BASE_DIR, 'asset');
 const PARSED_DIR = path.join(BASE_DIR, 'parsed');
 
-// Card WOORI payment days by company
-const WOORI_PAY_DAY: Record<string, number> = {
-  feedback:  20,
-  sangsaeng: 17,
-};
+// 우리카드 결제일은 사용일 기준으로 자동 계산 (전월 6일~당월 5일 → 당월 20일)
 
 interface FileConfig {
   file:    string;
@@ -94,7 +90,7 @@ function main() {
           break;
         }
         case 'CARD_WOORI': {
-          const r = parseCardWoori(buf, fc.company, fc.file, WOORI_PAY_DAY[fc.company] ?? 20);
+          const r = parseCardWoori(buf, fc.company, fc.file);
           recs = r.records; errs = r.errors;
           allCard.push(...r.records as CardTransaction[]);
           break;

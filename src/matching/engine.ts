@@ -266,10 +266,13 @@ export class MatchingEngine {
       });
 
       const vname = [ht.vendorName, ht.itemName].filter(Boolean).join(' ');
+      // 카드 매칭 시 entry_date = 홈택스 계산서 작성일 (카드 사용일 아님)
+      // 은행 매칭 시 entry_date = 은행 거래일 (top.date)
+      const entryDate = top.bankId ? top.date : ht.issueDate;
       this.cashflow.push({
         id:              makeId('cf'),
         company:         ht.company,
-        date:            top.date,
+        date:            entryDate,
         vendorName:      vname,
         category:        '매입',
         subCategory:     ht.taxType === 'exempt' ? '매입(면세)' : '매입(과세)',
@@ -278,7 +281,7 @@ export class MatchingEngine {
         sourceType:      ht.sourceType,
         paymentSourceType: paySourceType,
         matchStatus:     status,
-        matchReason:     top.reason + (ht.isCancelled ? ' [수정계산서주의]' : ''),
+        matchReason:     top.reason + (ht.isCancelled ? ' [수정계산서주의]' : '') + (top.cardId ? ` [카드결제: 계산서일자 ${ht.issueDate} 기준]` : ''),
         hometaxInvoiceId: ht._id,
         bankTransactionId: top.bankId,
         cardTransactionId: top.cardId,

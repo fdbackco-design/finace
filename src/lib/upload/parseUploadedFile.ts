@@ -12,12 +12,8 @@ import { parseHometaxPurchase }    from '../../parsers/parseHometaxPurchase';
 import { parseHometaxSalesTax }    from '../../parsers/parseHometaxSalesTax';
 import { detectFileType }          from './detectFileType';
 
-// 우리카드 결제일: feedback=20일, sangsaeng=17일, shootmoon=20일
-const WOORI_PAY_DAY: Record<CompanyCode, number> = {
-  feedback:  20,
-  sangsaeng: 17,
-  shootmoon: 20,
-};
+// 우리카드 결제일은 사용일 기준으로 자동 계산 (전월 6일~당월 5일 → 당월 20일)
+// 회사별 다른 결제일 설정 제거
 
 export type UploadedParseResult = {
   fileName:          string;
@@ -76,7 +72,7 @@ export function parseUploadedFile(
         return { fileName, companyCode, sourceType, confidence: detected.confidence, reasons: detected.reasons, parsedCount: r.records.length, errors: r.errors, cardTransactions: r.records };
       }
       case 'CARD_WOORI': {
-        const r = parseCardWoori(buffer, companyCode, fileName, WOORI_PAY_DAY[companyCode]);
+        const r = parseCardWoori(buffer, companyCode, fileName);
         return { fileName, companyCode, sourceType, confidence: detected.confidence, reasons: detected.reasons, parsedCount: r.records.length, errors: r.errors, cardTransactions: r.records };
       }
       case 'HT_PURCHASE_TAX': {

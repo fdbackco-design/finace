@@ -14,6 +14,10 @@ import {
   cardLabelSortOrder,
   type CardLabel,
 } from '@/src/lib/cards/classifyCard';
+import {
+  getCardSettlementPeriod,
+  type CardSettlementPeriod,
+} from '@/src/lib/cards/settlement';
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
 
@@ -180,35 +184,58 @@ function SummarySection({ summary, daysInMonth, year, month }: {
   );
 }
 
-// ── 카드 지출 그룹 빌더 ───────────────────────────────────────────────────────
-
-type CardExpenseGroup = {
-  label: CardLabel;
-  totalAmount: number;
-  transactions: Array<{ id: string; date: string; vendorName: string; description: string | null; amount: number }>;
-};
+// ── 카드 지출 타입 ────────────────────────────────────────────────────────────
 
 // card_transactions 직접 조회용 타입
-// (CARD_WOORI는 cashflow_entries.entry_date가 익월 결제일이므로 used_date 기준으로 별도 조회)
 type CardTxRow = {
-  id:           string;
-  used_date:    string | null;
+  id:            string;
+  used_date:     string | null;
   merchant_name: string | null;
-  amount:       number;
-  card_label:   string | null;
-  company_code: string;
-  source_type:  string;
+  amount:        number;
+  card_label:    string | null;
+  company_code:  string;
+  source_type:   string;
+};
+
+// 카드-홈택스 매칭 cashflow_entries 조회용 타입
+type CardMatchRow = {
+  card_transaction_id: string;
+  entry_date:          string;
+  category:            string;
+  vendor_name:         string | null;
+};
+
+// 카드 거래 1건 표시용 타입
+type CardTxDetail = {
+  id:          string;
+  usedDate:    string;
+  invoiceDate: string | null;  // 홈택스 계산서 작성일 (매칭된 경우)
+  vendorName:  string;         // 매칭된 경우 계산서 거래처명, 아니면 카드 가맹점명
+  category:    '카드지출' | '매입';
+  basis:       '계산서 날짜 반영' | '카드 결제일 반영';
+  amount:      number;
+};
+
+type CardExpenseGroup = {
+  label:          CardLabel;
+  totalAmount:    number;  // 전체 사용액 (홈택스 매칭 포함)
+  htMatchedTotal: number;  // 홈택스 매입으로 반영된 금액
+  transactions:   CardTxDetail[];
 };
 
 const VALID_CARD_LABELS = new Set<string>([
   '상생 우리카드', '상생 기업카드', '피드백 우리카드', '피드백 기업카드',
 ]);
 
-function buildCardExpenseGroups(rows: CardTxRow[]): CardExpenseGroup[] {
+// ── 카드 지출 그룹 빌더 ───────────────────────────────────────────────────────
+
+function buildCardExpenseGroups(
+  rows:     CardTxRow[],
+  matchMap: Map<string, CardMatchRow>
+): CardExpenseGroup[] {
   const map = new Map<CardLabel, CardExpenseGroup>();
 
   for (const c of rows) {
-    // card_label 컬럼 우선, 없으면 company_code+source_type fallback
     const label: CardLabel | null =
       (c.card_label && VALID_CARD_LABELS.has(c.card_label)
         ? c.card_label as CardLabel
@@ -216,15 +243,23 @@ function buildCardExpenseGroups(rows: CardTxRow[]): CardExpenseGroup[] {
     if (!label) continue;
 
     if (!map.has(label)) {
-      map.set(label, { label, totalAmount: 0, transactions: [] });
+      map.set(label, { label, totalAmount: 0, htMatchedTotal: 0, transactions: [] });
     }
     const g = map.get(label)!;
     g.totalAmount += c.amount;
+
+    const match = matchMap.get(c.id);
+    const isHtMatched = !!(match && match.category === '매입');
+
+    if (isHtMatched) g.htMatchedTotal += c.amount;
+
     g.transactions.push({
       id:          c.id,
-      date:        c.used_date ?? '',
-      vendorName:  c.merchant_name ?? '',
-      description: null,
+      usedDate:    c.used_date ?? '',
+      invoiceDate: match?.entry_date ?? null,
+      vendorName:  match?.vendor_name ?? c.merchant_name ?? '',
+      category:    isHtMatched ? '매입' : '카드지출',
+      basis:       isHtMatched ? '계산서 날짜 반영' : '카드 결제일 반영',
       amount:      c.amount,
     });
   }
@@ -236,8 +271,18 @@ function buildCardExpenseGroups(rows: CardTxRow[]): CardExpenseGroup[] {
 
 // ── 카드 지출 섹션 ────────────────────────────────────────────────────────────
 
-function CardExpenseSection({ groups }: { groups: CardExpenseGroup[] }) {
+function CardExpenseSection({
+  groups,
+  period,
+  cashflowLabel,
+}: {
+  groups: CardExpenseGroup[];
+  period: CardSettlementPeriod;
+  cashflowLabel: string;
+}) {
   if (groups.length === 0) return null;
+
+  const hasHtMatch = groups.some(g => g.htMatchedTotal > 0);
 
   function fmtKrw(n: number): string {
     return new Intl.NumberFormat('ko-KR').format(n) + '원';
@@ -246,11 +291,36 @@ function CardExpenseSection({ groups }: { groups: CardExpenseGroup[] }) {
   return (
     <div className="card-expense-section">
       <h2>카드 지출 상세</h2>
+      <div className="card-settlement-info">
+        <span>결제일: <strong>{period.settlementDate}</strong></span>
+        <span style={{ margin: '0 12px' }}>·</span>
+        <span>사용기간: <strong>{period.usedDateFrom} ~ {period.usedDateTo}</strong></span>
+        <p style={{ marginTop: 4, color: '#64748b', fontSize: 12 }}>
+          ※ 해당 카드 사용액은 {cashflowLabel} 자금수지현황의 카드 결제 예정액입니다.
+        </p>
+        {hasHtMatch && (
+          <p style={{ marginTop: 2, color: '#64748b', fontSize: 12 }}>
+            ※ 홈택스 계산서와 매칭된 카드 거래는 계산서 작성일 기준으로 자금수지현황에 반영됩니다.
+          </p>
+        )}
+        {hasHtMatch && (
+          <p style={{ marginTop: 2, color: '#64748b', fontSize: 12 }}>
+            ※ 계산서와 매칭되지 않은 카드 거래는 카드 결제일 기준으로 반영됩니다.
+          </p>
+        )}
+      </div>
       {groups.map(g => (
         <details key={g.label} className="card-group">
           <summary>
             <span className="card-group-label">{g.label}</span>
-            <span className="card-group-total">지출 합계 {fmtKrw(g.totalAmount)}</span>
+            <span className="card-group-total">
+              지출 합계 {fmtKrw(g.totalAmount)}
+              {g.htMatchedTotal > 0 && (
+                <span className="card-group-ht-note">
+                  &nbsp;(이 중 {fmtKrw(g.htMatchedTotal)} 계산서 반영)
+                </span>
+              )}
+            </span>
           </summary>
           <div className="card-group-body">
             {g.transactions.length === 0 ? (
@@ -259,20 +329,28 @@ function CardExpenseSection({ groups }: { groups: CardExpenseGroup[] }) {
               <table>
                 <thead>
                   <tr>
-                    <th>날짜</th>
+                    <th>사용일</th>
+                    {g.transactions.some(t => t.invoiceDate) && <th>계산서날짜</th>}
                     <th>거래처</th>
-                    {g.transactions.some(t => t.description) && <th>적요</th>}
+                    <th>구분</th>
                     <th className="num">금액</th>
                   </tr>
                 </thead>
                 <tbody>
                   {g.transactions.map(t => (
-                    <tr key={t.id}>
-                      <td style={{ whiteSpace: 'nowrap' }}>{t.date}</td>
-                      <td>{t.vendorName}</td>
-                      {g.transactions.some(tx => tx.description) && (
-                        <td style={{ color: '#64748b', fontSize: 11 }}>{t.description ?? ''}</td>
+                    <tr key={t.id} className={t.category === '매입' ? 'card-tx-ht-matched' : ''}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{t.usedDate}</td>
+                      {g.transactions.some(tx => tx.invoiceDate) && (
+                        <td style={{ whiteSpace: 'nowrap', color: t.invoiceDate ? '#0f766e' : '#94a3b8' }}>
+                          {t.invoiceDate ?? '−'}
+                        </td>
                       )}
+                      <td>{t.vendorName}</td>
+                      <td>
+                        <span className={`card-tx-category ${t.category === '매입' ? 'card-tx-cat-ht' : 'card-tx-cat-card'}`}>
+                          {t.category}
+                        </span>
+                      </td>
                       <td className="num amt-expense">{fmtKrw(t.amount)}</td>
                     </tr>
                   ))}
@@ -381,16 +459,17 @@ export default async function CashflowPage({ searchParams }: Props) {
         .order('entry_date', { ascending: true }) as any,
   );
 
-  // card_transactions 직접 조회: CARD_WOORI는 entry_date가 익월(결제일)이므로
-  // used_date(사용일) 기준으로 별도 조회해야 당월 카드 내역이 표시됨
+  // 카드 결제 대상 기간: 전월 6일 ~ 당월 5일 사용분 → 당월 20일 결제
+  // (우리카드·기업카드 동일 기준, entry_date 대신 used_date 기준으로 직접 조회)
+  const settlementPeriod = getCardSettlementPeriod(year, month);
   const cardTxResult = await fetchTable<CardTxRow>(
     'card_transactions',
     (client) =>
       client
         .from('card_transactions')
         .select('id,used_date,merchant_name,amount,card_label,company_code,source_type')
-        .gte('used_date', startDate)
-        .lte('used_date', endDate)
+        .gte('used_date', settlementPeriod.usedDateFrom)
+        .lte('used_date', settlementPeriod.usedDateTo)
         .eq('is_cancelled', false)
         .gt('amount', 0) as any,
   );
@@ -399,7 +478,31 @@ export default async function CashflowPage({ searchParams }: Props) {
   const summary      = result.status === 'ok' && result.data.length > 0
     ? buildCashflowMonthlySummary(result.data, monthStr(year, month), daysInMonth)
     : null;
-  const cardGroups   = cardTxResult.status === 'ok' ? buildCardExpenseGroups(cardTxResult.data) : [];
+
+  // 카드-홈택스 매칭: 해당 기간 카드 거래 중 홈택스 계산서와 매칭된 항목 조회
+  const cardTxIds = cardTxResult.status === 'ok' ? cardTxResult.data.map(c => c.id) : [];
+  const matchedCfResult = cardTxIds.length > 0
+    ? await fetchTable<CardMatchRow>(
+        'cashflow_entries',
+        (client) =>
+          client
+            .from('cashflow_entries')
+            .select('card_transaction_id,entry_date,category,vendor_name')
+            .in('card_transaction_id', cardTxIds)
+            .in('category', ['매입', '매출']) as any,
+      )
+    : ({ status: 'ok' as const, data: [] as CardMatchRow[] });
+
+  const matchMap = new Map<string, CardMatchRow>();
+  if (matchedCfResult.status === 'ok') {
+    for (const row of matchedCfResult.data) {
+      if (row.card_transaction_id) matchMap.set(row.card_transaction_id, row);
+    }
+  }
+
+  const cardGroups = cardTxResult.status === 'ok'
+    ? buildCardExpenseGroups(cardTxResult.data, matchMap)
+    : [];
 
   return (
     <div className="page" style={{ maxWidth: '100%' }}>
@@ -444,7 +547,7 @@ export default async function CashflowPage({ searchParams }: Props) {
             <span className="amt-expense">▼ 지출 (빨강)</span>
           </p>
           <PivotTable rows={pivotRows} daysInMonth={daysInMonth} year={year} month={month} />
-          <CardExpenseSection groups={cardGroups} />
+          <CardExpenseSection groups={cardGroups} period={settlementPeriod} cashflowLabel={label} />
         </>
       )}
     </div>

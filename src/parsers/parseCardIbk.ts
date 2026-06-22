@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { CardTransaction, CompanyCode, ParsedFileResult, ParseError } from '../lib/types';
 import { classifyCard } from '../lib/cards/classifyCard';
+import { calcCardPaymentDueDate } from '../lib/cards/settlement';
 
 function parseAmount(v: unknown): number {
   if (typeof v === 'number') return Math.round(v);
@@ -37,16 +38,12 @@ export function parseCardIbk(
       const cardNo      = String(row[4] ?? '');
       const merchantName = String(row[6] ?? '');
       const amount       = parseAmount(row[7]);
-      const approvalNumber = String(row[14] ?? '');
+      const approvalNumber  = String(row[14] ?? '');
       const cancelledAmount = parseAmount(row[17]);
 
-      // 결제예정일자는 U열(idx20)에 이미 있음
-      const pdRaw = row[20];
-      let paymentDueDate = '';
-      if (pdRaw) {
-        const s = String(pdRaw);
-        paymentDueDate = s.length >= 10 ? s.substring(0, 10) : s;
-      }
+      // 결제일: 사용일 기준 계산 (1~5일: 당월 20일, 6~31일: 익월 20일)
+      // Excel U열(idx20) 결제예정일 대신 통일 규칙 적용
+      const paymentDueDate = dp ? calcCardPaymentDueDate(dp) : '';
 
       const businessNo = String(row[21] ?? '');
       const usageType  = String(row[2] ?? '');

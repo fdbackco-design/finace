@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { CardTransaction, CompanyCode, ParsedFileResult, ParseError } from '../lib/types';
 import { classifyCard } from '../lib/cards/classifyCard';
+import { calcCardPaymentDueDate } from '../lib/cards/settlement';
 
 function parseAmount(v: unknown): number {
   if (typeof v === 'number') return Math.round(v);
@@ -26,33 +27,18 @@ function parseWooriDate(dateStr: string, year: number): string {
   return `${year}-${month}-${day}T${timeFull}`;
 }
 
-// Next month's payment date from period end string
-function calcPaymentDueDate(periodStr: string, payDay: number): string {
-  // "2026.06.06 ~ 2026.06.19" → take end date
-  const endPart = String(periodStr ?? '').split('~')[1]?.trim() ?? '';
-  const m = endPart.match(/(\d{4})\.(\d{2})\.(\d{2})/);
-  if (!m) return '';
-  let [, y, mo] = m;
-  let nextMo = parseInt(mo) + 1;
-  let nextY  = parseInt(y);
-  if (nextMo > 12) { nextMo = 1; nextY++; }
-  return `${nextY}-${String(nextMo).padStart(2, '0')}-${String(payDay).padStart(2, '0')}`;
-}
-
 export function parseCardWoori(
   buffer: Buffer,
   company: CompanyCode,
-  filename: string,
-  payDay: number = 20
+  filename: string
 ): ParsedFileResult<CardTransaction> {
   const wb  = XLSX.read(buffer, { type: 'buffer', raw: false });
   const ws  = wb.Sheets[wb.SheetNames[0]];
   const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) as unknown[][];
 
-  // R3 (idx 2) B열: 이용기간 "YYYY.MM.DD ~ YYYY.MM.DD"
-  const periodStr     = String(aoa[2]?.[1] ?? '');
-  const year          = extractYear(periodStr);
-  const paymentDueDate = calcPaymentDueDate(periodStr, payDay);
+  // R3 (idx 2) B열: 이용기간 — 연도 추출에만 사용 (결제일은 사용일 기준으로 계산)
+  const periodStr = String(aoa[2]?.[1] ?? '');
+  const year      = extractYear(periodStr);
 
   // Format detection: header at R19 (idx 18)
   // idx9 contains '사업자' → Format A (피드백), else Format B (상생)
@@ -101,10 +87,14 @@ export function parseCardWoori(
         businessNo        = '';
       }
 
-      const isCancelled    = status === '취소';
+      const isCancelled     = status === '취소';
       const cancelledAmount = isCancelled ? amount : 0;
-      const usedAt         = parseWooriDate(dateStr, year);
-      const cardNo         = cardLast4 ? `****-****-****-${cardLast4}` : '';
+      const usedAt          = parseWooriDate(dateStr, year);
+      const cardNo          = cardLast4 ? `****-****-****-${cardLast4}` : '';
+
+      // 결제일: 사용일 기준 계산 (1~5일: 당월 20일, 6~31일: 익월 20일)
+      const usedDate       = usedAt.substring(0, 10);
+      const paymentDueDate = usedDate ? calcCardPaymentDueDate(usedDate) : '';
 
       // 이용카드 식별값(cardLast4)으로 분류: 9727=피드백, 6313=상생
       const classification = classifyCard({ source: 'CARD_WOORI', cardRef: cardLast4, cardNo });
@@ -143,6 +133,6 @@ export function parseCardWoori(
     filename,
     records,
     errors,
-    meta: { year, periodStr, paymentDueDate, format: isFormatA ? 'A_feedback' : 'B_sangsaeng' },
+    meta: { year, periodStr, format: isFormatA ? 'A_feedback' : 'B_sangsaeng' },
   };
 }
