@@ -80,6 +80,8 @@ function toCardRow(c: CardTransaction, companyMap: Record<string, string>, hash:
     cancelled_amount:    c.cancelledAmount       ?? 0,
     domestic_or_foreign: c.domesticOrForeign     || null,
     sales_type:          c.salesType             || null,
+    card_provider:       c.cardProvider          || null,
+    card_label:          c.cardLabel             || null,
     source_hash:         hash,
   };
 }

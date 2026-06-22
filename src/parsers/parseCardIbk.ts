@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { CardTransaction, CompanyCode, ParsedFileResult, ParseError } from '../lib/types';
+import { classifyCard } from '../lib/cards/classifyCard';
 
 function parseAmount(v: unknown): number {
   if (typeof v === 'number') return Math.round(v);
@@ -51,6 +52,8 @@ export function parseCardIbk(
       const usageType  = String(row[2] ?? '');
       const domesticOrForeign = usageType.includes('해외') ? '해외' : '국내';
 
+      const classification = classifyCard({ source: 'CARD_IBK', cardNo });
+
       records.push({
         company,
         sourceType: 'CARD_IBK',
@@ -65,6 +68,8 @@ export function parseCardIbk(
         cancelledAmount,
         domesticOrForeign,
         salesType: String(row[10] ?? ''),
+        cardProvider: classification?.cardProvider ?? null,
+        cardLabel:    classification?.cardLabel    ?? null,
       });
     } catch (e) {
       errors.push({ file: filename, rowIndex: i, message: String(e), rawData: row as unknown[] });

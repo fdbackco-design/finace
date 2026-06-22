@@ -420,6 +420,77 @@ tbody tr:hover td {
 .pivot-cat   { font-size: 11px; color: #64748b; }
 .pivot-vendor { font-size: 12px; }
 
+/* ── Card expense section ─────────────────────── */
+.card-expense-section {
+  margin-top: 28px;
+}
+.card-expense-section h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 12px;
+}
+.card-group {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.card-group summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.card-group summary::-webkit-details-marker { display: none; }
+.card-group summary::before {
+  content: '▶';
+  font-size: 10px;
+  color: #64748b;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.card-group[open] > summary::before {
+  transform: rotate(90deg);
+}
+.card-group summary:hover {
+  background: #f8fafc;
+}
+.card-group-label {
+  flex: 1;
+}
+.card-group-total {
+  font-variant-numeric: tabular-nums;
+  color: #dc2626;
+  font-weight: 700;
+}
+.card-group-body {
+  border-top: 1px solid #e2e8f0;
+  overflow-x: auto;
+}
+.card-group-body table {
+  font-size: 12px;
+}
+.card-group-body thead th {
+  background: #f8fafc;
+  padding: 7px 12px;
+}
+.card-group-body tbody td {
+  padding: 7px 12px;
+}
+.card-group-empty {
+  padding: 16px 20px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 /* ── Empty / Error states ─────────────────────── */
 .empty {
   padding: 48px;

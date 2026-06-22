@@ -9,6 +9,11 @@ import {
   type CashflowMonthlyRow,
   type CashflowMonthlySummary,
 } from '@/src/lib/cashflow/monthlyPivot';
+import {
+  cardLabelFromEntry,
+  cardLabelSortOrder,
+  type CardLabel,
+} from '@/src/lib/cards/classifyCard';
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
 
@@ -175,6 +180,95 @@ function SummarySection({ summary, daysInMonth, year, month }: {
   );
 }
 
+// ── 카드 지출 그룹 빌더 ───────────────────────────────────────────────────────
+
+type CardExpenseGroup = {
+  label: CardLabel;
+  totalAmount: number;
+  transactions: Array<{ id: string; date: string; vendorName: string; description: string | null; amount: number }>;
+};
+
+function buildCardExpenseGroups(entries: DbEntry[]): CardExpenseGroup[] {
+  const map = new Map<CardLabel, CardExpenseGroup>();
+
+  for (const e of entries) {
+    if (e.category !== '카드지출') continue;
+    if (e.expense_amount <= 0) continue;
+
+    const label = cardLabelFromEntry(e.company_code, e.source_type);
+    if (!label) continue;
+
+    if (!map.has(label)) {
+      map.set(label, { label, totalAmount: 0, transactions: [] });
+    }
+    const g = map.get(label)!;
+    g.totalAmount += e.expense_amount;
+    g.transactions.push({
+      id:          e.id,
+      date:        e.entry_date,
+      vendorName:  e.vendor_name,
+      description: e.sub_category,
+      amount:      e.expense_amount,
+    });
+  }
+
+  return Array.from(map.values()).sort(
+    (a, b) => cardLabelSortOrder(a.label) - cardLabelSortOrder(b.label)
+  );
+}
+
+// ── 카드 지출 섹션 ────────────────────────────────────────────────────────────
+
+function CardExpenseSection({ groups }: { groups: CardExpenseGroup[] }) {
+  if (groups.length === 0) return null;
+
+  function fmtKrw(n: number): string {
+    return new Intl.NumberFormat('ko-KR').format(n) + '원';
+  }
+
+  return (
+    <div className="card-expense-section">
+      <h2>카드 지출 상세</h2>
+      {groups.map(g => (
+        <details key={g.label} className="card-group">
+          <summary>
+            <span className="card-group-label">{g.label}</span>
+            <span className="card-group-total">지출 합계 {fmtKrw(g.totalAmount)}</span>
+          </summary>
+          <div className="card-group-body">
+            {g.transactions.length === 0 ? (
+              <div className="card-group-empty">거래 내역이 없습니다.</div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>날짜</th>
+                    <th>거래처</th>
+                    {g.transactions.some(t => t.description) && <th>적요</th>}
+                    <th className="num">금액</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.transactions.map(t => (
+                    <tr key={t.id}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{t.date}</td>
+                      <td>{t.vendorName}</td>
+                      {g.transactions.some(tx => tx.description) && (
+                        <td style={{ color: '#64748b', fontSize: 11 }}>{t.description ?? ''}</td>
+                      )}
+                      <td className="num amt-expense">{fmtKrw(t.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
 // ── 피벗 테이블 렌더링 ────────────────────────────────────────────────────────
 
 function PivotTable({ rows, daysInMonth, year, month }: {
@@ -270,10 +364,11 @@ export default async function CashflowPage({ searchParams }: Props) {
         .order('entry_date', { ascending: true }) as any,
   );
 
-  const pivotRows = result.status === 'ok' ? buildMonthlyPivot(result.data, daysInMonth) : [];
-  const summary   = result.status === 'ok' && result.data.length > 0
+  const pivotRows    = result.status === 'ok' ? buildMonthlyPivot(result.data, daysInMonth) : [];
+  const summary      = result.status === 'ok' && result.data.length > 0
     ? buildCashflowMonthlySummary(result.data, monthStr(year, month), daysInMonth)
     : null;
+  const cardGroups   = result.status === 'ok' ? buildCardExpenseGroups(result.data) : [];
 
   return (
     <div className="page" style={{ maxWidth: '100%' }}>
@@ -318,6 +413,7 @@ export default async function CashflowPage({ searchParams }: Props) {
             <span className="amt-expense">▼ 지출 (빨강)</span>
           </p>
           <PivotTable rows={pivotRows} daysInMonth={daysInMonth} year={year} month={month} />
+          <CardExpenseSection groups={cardGroups} />
         </>
       )}
     </div>

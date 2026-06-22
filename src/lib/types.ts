@@ -41,6 +41,8 @@ export interface CardTransaction {
   cancelledAmount: number;
   domesticOrForeign: string;
   salesType: string;
+  cardProvider?: string | null;  // '우리카드' | '기업카드'
+  cardLabel?: string | null;     // '상생 우리카드' | '상생 기업카드' | '피드백 우리카드' | '피드백 기업카드'
 }
 
 export interface HometaxInvoice {

@@ -10,7 +10,9 @@
     "parse":     "ts-node --project tsconfig.scripts.json scripts/parse-all.ts",
     "match":     "ts-node --project tsconfig.scripts.json scripts/match-all.ts",
     "db:import": "ts-node --project tsconfig.scripts.json scripts/import-to-supabase.ts",
-    "db:check":  "ts-node --project tsconfig.scripts.json scripts/check-db.ts"
+    "db:check":  "ts-node --project tsconfig.scripts.json scripts/check-db.ts",
+    "card:test":     "ts-node --project tsconfig.scripts.json scripts/test-card-classify.ts",
+    "card:backfill": "ts-node --project tsconfig.scripts.json scripts/backfill-card-classification.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",

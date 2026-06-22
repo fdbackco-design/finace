@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { CardTransaction, CompanyCode, ParsedFileResult, ParseError } from '../lib/types';
+import { classifyCard } from '../lib/cards/classifyCard';
 
 function parseAmount(v: unknown): number {
   if (typeof v === 'number') return Math.round(v);
@@ -105,6 +106,9 @@ export function parseCardWoori(
       const usedAt         = parseWooriDate(dateStr, year);
       const cardNo         = cardLast4 ? `****-****-****-${cardLast4}` : '';
 
+      // 이용카드 식별값(cardLast4)으로 분류: 9727=피드백, 6313=상생
+      const classification = classifyCard({ source: 'CARD_WOORI', cardRef: cardLast4, cardNo });
+
       records.push({
         company,
         sourceType: 'CARD_WOORI',
@@ -119,6 +123,8 @@ export function parseCardWoori(
         cancelledAmount,
         domesticOrForeign,
         salesType,
+        cardProvider: classification?.cardProvider ?? null,
+        cardLabel:    classification?.cardLabel    ?? null,
       });
     } catch (e) {
       errors.push({ file: filename, rowIndex: i, message: String(e), rawData: row as unknown[] });
