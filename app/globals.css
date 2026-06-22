@@ -66,6 +66,121 @@ a:hover {
   margin-bottom: 20px;
 }
 
+/* ── 대시보드 ─────────────────────────────────── */
+.page-dashboard {
+  max-width: 680px;
+}
+
+.dashboard-board {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.dash-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 2px 4px 6px;
+  font-size: 13px;
+  color: #1e293b;
+}
+
+.dash-ampm {
+  font-weight: 500;
+}
+
+.dash-date {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-card-table,
+.dash-balance-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  background: #fff;
+}
+
+.dash-card-table td,
+.dash-balance-table th,
+.dash-balance-table td {
+  border: 1px solid #222;
+  padding: 7px 12px;
+  vertical-align: middle;
+}
+
+.dash-card-label {
+  text-align: left;
+  white-space: nowrap;
+}
+
+.dash-card-amount {
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dash-balance-table thead th {
+  background: #f4b8a8;
+  font-weight: 700;
+  text-align: center;
+}
+
+.dash-balance-co {
+  text-align: center;
+  font-weight: 600;
+  white-space: nowrap;
+  width: 72px;
+}
+
+.dash-balance-acct {
+  text-align: left;
+  white-space: nowrap;
+  min-width: 100px;
+}
+
+.dash-balance-amt {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 140px;
+}
+
+.dash-co-feedback td,
+.dash-co-feedback th {
+  background: #c6efce;
+}
+
+.dash-co-sangsaeng td,
+.dash-co-sangsaeng th {
+  background: #bdd7ee;
+}
+
+.dash-co-shootmoon td,
+.dash-co-shootmoon th {
+  background: #fff2cc;
+}
+
+.dash-total-row td {
+  background: #f4b8a8 !important;
+  font-weight: 700;
+}
+
+.dash-total-amt {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.dash-empty-cell {
+  text-align: center;
+  color: #64748b;
+  padding: 16px !important;
+  background: #f8fafc !important;
+}
+
 /* ── Cards ────────────────────────────────────── */
 .card-grid {
   display: grid;

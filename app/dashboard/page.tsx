@@ -1,182 +1,188 @@
-export const dynamic   = 'force-dynamic';
+export const dynamic    = 'force-dynamic';
 export const revalidate = 0;
 
 import { fetchTable } from '@/src/lib/supabase/server';
+import {
+  buildBalanceRows,
+  buildCardUsageRows,
+  buildLatestBalanceMap,
+  formatTodayKo,
+  monthRangeToToday,
+  sumKrwBalances,
+} from '@/src/lib/dashboard/buildDashboardData';
 
-type Entry = {
-  company_code: string;
-  match_status: string;
-  category: string;
-  income_amount: number;
-  expense_amount: number;
+type CardTx = {
+  amount:        number;
+  used_date:     string | null;
+  card_label:    string | null;
+  company_code:  string;
+  source_type:   string;
+  is_cancelled:  boolean;
 };
 
-function groupCount<T>(arr: T[], key: keyof T): Record<string, number> {
-  const map: Record<string, number> = {};
-  arr.forEach(item => {
-    const v = String(item[key] ?? 'null');
-    map[v] = (map[v] ?? 0) + 1;
-  });
-  return map;
+type BankTx = {
+  company_code:     string;
+  source_type:      string;
+  balance:          number | null;
+  transaction_date: string;
+  transaction_time: string | null;
+};
+
+function fmtKrw(n: number | null): string {
+  if (n == null) return '₩  -';
+  return `₩  ${new Intl.NumberFormat('ko-KR').format(n)}`;
 }
 
-function sumBy<T>(arr: T[], key: keyof T): number {
-  return arr.reduce((s, item) => s + ((item[key] as number) ?? 0), 0);
+function fmtUsd(): string {
+  return '$  -';
 }
 
-function fmt(n: number) {
+function fmtCardAmt(n: number): string {
   return new Intl.NumberFormat('ko-KR').format(n);
 }
 
-const COMPANY_LABEL: Record<string, string> = {
-  feedback:  '피드백',
-  sangsaeng: '상생',
-  shootmoon: '슛문',
-};
-
-const STATUS_ORDER = ['AUTO_MATCHED', 'MANUAL_REVIEW', 'UNMATCHED', 'USER_CONFIRMED', 'USER_EDITED', 'EXCLUDED'];
-const STATUS_COLOR: Record<string, string> = {
-  AUTO_MATCHED:   '#16a34a',
-  MANUAL_REVIEW:  '#d97706',
-  UNMATCHED:      '#dc2626',
-  USER_CONFIRMED: '#2563eb',
-  USER_EDITED:    '#7c3aed',
-  EXCLUDED:       '#64748b',
-};
+function companyRowClass(code: string): string {
+  if (code === 'feedback')  return 'dash-co-feedback';
+  if (code === 'sangsaeng') return 'dash-co-sangsaeng';
+  if (code === 'shootmoon') return 'dash-co-shootmoon';
+  return '';
+}
 
 export default async function DashboardPage() {
-  const result = await fetchTable<Entry>(
-    'cashflow_entries',
-    (client) =>
-      client
-        .from('cashflow_entries')
-        .select('company_code,match_status,category,income_amount,expense_amount') as any,
-  );
+  const now        = new Date();
+  const { ampm, dateLabel } = formatTodayKo(now);
+  const { from, to }        = monthRangeToToday(now);
+
+  const [cardResult, bankResult] = await Promise.all([
+    fetchTable<CardTx>(
+      'card_transactions',
+      (client) =>
+        client
+          .from('card_transactions')
+          .select('amount,used_date,card_label,company_code,source_type,is_cancelled')
+          .gte('used_date', from)
+          .lte('used_date', to)
+          .eq('is_cancelled', false)
+          .gt('amount', 0) as any,
+    ),
+    fetchTable<BankTx>(
+      'bank_transactions',
+      (client) =>
+        client
+          .from('bank_transactions')
+          .select('company_code,source_type,balance,transaction_date,transaction_time')
+          .not('balance', 'is', null)
+          .order('transaction_date', { ascending: false })
+          .order('transaction_time', { ascending: false })
+          .limit(5000) as any,
+    ),
+  ]);
+
+  const cardRows    = cardResult.status === 'ok' ? buildCardUsageRows(cardResult.data) : [];
+  const balanceMap  = bankResult.status === 'ok' ? buildLatestBalanceMap(bankResult.data) : new Map();
+  const balanceRows = buildBalanceRows(balanceMap);
+  const totalKrw    = sumKrwBalances(balanceRows);
+  const hasData     = cardRows.length > 0 || balanceRows.some(r => r.balance != null);
 
   return (
-    <div className="page">
+    <div className="page page-dashboard">
       <h1 className="page-title">대시보드</h1>
-      <p className="page-sub">전체 자금수지현황 요약</p>
+      <p className="page-sub">이번 달 카드 사용액 · 계좌 현재잔액</p>
 
-      {result.status === 'env_missing' && (
+      {cardResult.status === 'env_missing' && (
         <div className="env-warn">
           <strong>⚠️ Supabase 환경변수가 설정되지 않았습니다.</strong><br />
-          Vercel Dashboard → Settings → Environment Variables 에 아래 3개를 등록하고 <strong>Redeploy</strong> 하세요.<br /><br />
-          &nbsp;• NEXT_PUBLIC_SUPABASE_URL<br />
-          &nbsp;• NEXT_PUBLIC_SUPABASE_ANON_KEY<br />
-          &nbsp;• SUPABASE_SERVICE_ROLE_KEY<br /><br />
-          진단: <a href="/api/env-check" target="_blank" style={{ color: '#92400e', textDecoration: 'underline' }}>/api/env-check</a>
-          &nbsp;·&nbsp;
-          <a href="/api/db-check" target="_blank" style={{ color: '#92400e', textDecoration: 'underline' }}>/api/db-check</a>
+          Vercel Dashboard → Settings → Environment Variables 에 3개를 등록하고 <strong>Redeploy</strong> 하세요.
         </div>
       )}
 
-      {(result.status === 'db_error' || result.status === 'table_missing') && (
+      {(cardResult.status === 'db_error' || cardResult.status === 'table_missing') && (
         <div className="env-warn" style={{ background: '#fef2f2', borderColor: '#fca5a5' }}>
-          <strong>⚠️ {result.status === 'table_missing' ? 'cashflow_entries 테이블을 찾을 수 없습니다. migration 실행 여부를 확인하세요.' : 'Supabase 연결은 됐지만 DB 조회 중 오류가 발생했습니다.'}</strong><br />
-          {'message' in result && result.message && <><code style={{ fontSize: 12 }}>{result.message}</code><br /></>}
-          진단: <a href="/api/db-check" target="_blank" style={{ color: '#991b1b', textDecoration: 'underline' }}>/api/db-check</a>
+          <strong>⚠️ DB 조회 오류</strong>
+          {'message' in cardResult && cardResult.message && (
+            <><br /><code style={{ fontSize: 12 }}>{cardResult.message}</code></>
+          )}
         </div>
       )}
 
-      {result.status === 'ok' && result.data.length === 0 && (
+      {cardResult.status === 'ok' && !hasData && (
         <div className="table-wrap">
           <div className="empty">
-            <p className="empty-title">아직 적재된 데이터가 없습니다</p>
-            <p>로컬에서 <code>npm run db:import</code>를 실행한 뒤 다시 확인하세요.</p>
+            <p className="empty-title">표시할 데이터가 없습니다</p>
+            <p>은행·카드 파일을 업로드하거나 <code>npm run db:import</code>를 실행하세요.</p>
           </div>
         </div>
       )}
 
-      {result.status === 'ok' && result.data.length > 0 && (() => {
-        const entries     = result.data;
-        const total       = entries.length;
-        const totalIncome  = sumBy(entries, 'income_amount');
-        const totalExpense = sumBy(entries, 'expense_amount');
-        const byCompany    = groupCount(entries, 'company_code');
-        const byStatus     = groupCount(entries, 'match_status');
-        const byCategory   = groupCount(entries, 'category');
-
-        return (
-          <>
-            <div className="card-grid">
-              <div className="card">
-                <p className="card-label">총 건수</p>
-                <p className="card-value">{fmt(total)}</p>
-              </div>
-              <div className="card">
-                <p className="card-label">총 입금액</p>
-                <p className="card-value" style={{ fontSize: 18, color: '#16a34a' }}>{fmt(totalIncome)}</p>
-              </div>
-              <div className="card">
-                <p className="card-label">총 지출액</p>
-                <p className="card-value" style={{ fontSize: 18, color: '#dc2626' }}>{fmt(totalExpense)}</p>
-              </div>
+      {cardResult.status === 'ok' && (
+        <div className="dashboard-board">
+          {/* ── 신용카드 이번 달 사용액 ── */}
+          <section className="dash-section">
+            <div className="dash-section-header">
+              <span className="dash-ampm">{ampm}</span>
+              <span className="dash-date">{dateLabel}</span>
             </div>
+            <table className="dash-card-table">
+              <tbody>
+                {cardRows.map(row => (
+                  <tr key={row.label} className={companyRowClass(row.companyCode)}>
+                    <td className="dash-card-label">{row.label}</td>
+                    <td className="dash-card-amount num">{fmtCardAmt(row.amount)}</td>
+                  </tr>
+                ))}
+                {cardRows.length === 0 && (
+                  <tr>
+                    <td colSpan={2} className="dash-empty-cell">이번 달 카드 사용 내역 없음</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr><th colSpan={2}>회사별 건수</th></tr>
-                    <tr><th>회사</th><th className="num">건수</th></tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(byCompany).map(([co, cnt]) => (
-                      <tr key={co}>
-                        <td>{COMPANY_LABEL[co] ?? co}</td>
-                        <td className="num">{fmt(cnt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr><th colSpan={3}>매칭 상태별</th></tr>
-                    <tr><th>상태</th><th className="num">건수</th><th className="num">비율</th></tr>
-                  </thead>
-                  <tbody>
-                    {STATUS_ORDER.filter(s => byStatus[s] !== undefined).map(s => (
-                      <tr key={s}>
-                        <td><span style={{ color: STATUS_COLOR[s], fontWeight: 600 }}>{s}</span></td>
-                        <td className="num">{fmt(byStatus[s])}</td>
-                        <td className="num" style={{ color: '#64748b' }}>
-                          {total > 0 ? `${((byStatus[s] / total) * 100).toFixed(1)}%` : ''}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr><th colSpan={3}>구분(category)별</th></tr>
-                    <tr><th>구분</th><th className="num">건수</th><th className="num">비율</th></tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(byCategory)
-                      .sort((a, b) => b[1] - a[1])
-                      .map(([cat, cnt]) => (
-                        <tr key={cat}>
-                          <td>{cat}</td>
-                          <td className="num">{fmt(cnt)}</td>
-                          <td className="num" style={{ color: '#64748b' }}>
-                            {total > 0 ? `${((cnt / total) * 100).toFixed(1)}%` : ''}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        );
-      })()}
+          {/* ── 계좌 현재잔액 ── */}
+          <section className="dash-section">
+            <table className="dash-balance-table">
+              <thead>
+                <tr>
+                  <th className="dash-balance-co">상 호</th>
+                  <th className="dash-balance-acct" />
+                  <th className="dash-balance-amt num">현재잔액</th>
+                </tr>
+              </thead>
+              <tbody>
+                {balanceRows.map((row, i) => (
+                  <tr key={`${row.companyCode}-${row.accountLabel}-${i}`} className={companyRowClass(row.companyCode)}>
+                    {row.showCompany && (
+                      <td className="dash-balance-co" rowSpan={row.rowSpan}>
+                        {row.companyLabel}
+                      </td>
+                    )}
+                    <td className="dash-balance-acct">{row.accountLabel}</td>
+                    <td className="dash-balance-amt num">
+                      {row.currency === 'USD' ? fmtUsd() : fmtKrw(row.balance)}
+                    </td>
+                  </tr>
+                ))}
+                {balanceRows.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="dash-empty-cell">잔액 데이터 없음</td>
+                  </tr>
+                )}
+              </tbody>
+              {balanceRows.length > 0 && (
+                <tfoot>
+                  <tr className="dash-total-row">
+                    <td colSpan={2} className="dash-balance-co">합 계</td>
+                    <td className="dash-balance-amt num dash-total-amt">
+                      {new Intl.NumberFormat('ko-KR').format(totalKrw)}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
