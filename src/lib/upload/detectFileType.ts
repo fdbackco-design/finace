@@ -15,7 +15,28 @@ const COMPANY_KEYWORDS: Record<CompanyCode, string[]> = {
 };
 
 function norm(s: string): string {
-  return s.toLowerCase().replace(/[\s_\-()（）\[\]]/g, '');
+  return s.normalize('NFC').toLowerCase().replace(/[\s_\-()（）\[\]]/g, '');
+}
+
+/** Excel A5 = row index 4, col 0 — 홈택스 제목행 */
+function hometaxTitleFromA5(rows: unknown[][]): string {
+  const raw = rows[4]?.[0];
+  return raw != null ? String(raw).normalize('NFC').trim() : '';
+}
+
+function detectHometaxFromTitle(title: string): { sourceType: SourceType; label: string } | null {
+  if (!title.includes('목록조회')) return null;
+
+  if (title.includes('매출') && title.includes('세금계산서')) {
+    return { sourceType: 'HT_SALES_TAX', label: '매출 전자세금계산서' };
+  }
+  if (title.includes('매입') && title.includes('세금계산서')) {
+    return { sourceType: 'HT_PURCHASE_TAX', label: '매입 전자세금계산서' };
+  }
+  if (title.includes('매입') && title.includes('계산서')) {
+    return { sourceType: 'HT_PURCHASE', label: '매입 전자계산서(면세)' };
+  }
+  return null;
 }
 
 function flat(rows: unknown[][], limit = 8): string {
@@ -43,6 +64,8 @@ export function detectFileType(
 
   const fnNorm   = norm(fileName);
   const content  = flat(firstSheetRows);
+  const a5Title  = hometaxTitleFromA5(firstSheetRows);
+  const hometaxFromA5 = detectHometaxFromTitle(a5Title);
 
   // ── 회사 감지 ───────────────────────────────────────────────────────────────
   for (const [code, kws] of Object.entries(COMPANY_KEYWORDS)) {
@@ -102,7 +125,13 @@ export function detectFileType(
     confidence = 0.90;
     reasons.push('CARD_WOORI: 파일명(우리카드) 또는 헤더(이용일자,승인번호)');
   }
-  // HT_SALES_TAX: 매출 세금계산서
+  // 홈택스: A5 제목행 (매입/매출 전자(수정) 세금계산서 목록조회)
+  else if (hometaxFromA5) {
+    sourceType = hometaxFromA5.sourceType;
+    confidence = 0.96;
+    reasons.push(`${hometaxFromA5.sourceType}: A5 제목행("${a5Title}")`);
+  }
+  // HT_SALES_TAX: 매출 세금계산서 (파일명)
   else if (
     fnNorm.includes('매출전자세금계산서') || fnNorm.includes('매출세금계산서') ||
     (fnNorm.includes('매출') && fnNorm.includes('세금계산서'))
@@ -128,11 +157,16 @@ export function detectFileType(
     confidence = 0.88;
     reasons.push('HT_PURCHASE: 파일명(매입전자계산서 / 면세)');
   }
-  // 헤더 기반 홈택스 감지 (파일명 단서 없을 때)
+  // 헤더 기반 홈택스 감지 (파일명·A5 단서 없을 때)
   else if (hasAll(content, '공급자', '합계금액') && content.includes('세액')) {
-    sourceType = fnNorm.includes('매출') ? 'HT_SALES_TAX' : 'HT_PURCHASE_TAX';
-    confidence = 0.70;
-    reasons.push(`홈택스 헤더 감지(공급자/합계금액/세액) → ${sourceType}`);
+    sourceType = hometaxFromA5?.sourceType
+      ?? (fnNorm.includes('매출') ? 'HT_SALES_TAX' : 'HT_PURCHASE_TAX');
+    confidence = hometaxFromA5 ? 0.90 : 0.70;
+    reasons.push(
+      hometaxFromA5
+        ? `${sourceType}: A5 제목행("${a5Title}")`
+        : `홈택스 헤더 감지(공급자/합계금액/세액) → ${sourceType}`,
+    );
   }
   else if (hasAll(content, '공급자', '공급가액') && !content.includes('세액')) {
     sourceType = 'HT_PURCHASE';
