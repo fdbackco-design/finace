@@ -6,6 +6,7 @@ export type DbEntry = {
   entry_date: string;          // YYYY-MM-DD
   vendor_name: string;
   vendor_name_mapped: string | null;
+  hometax_invoice_id?: string | null;
   category: string;
   sub_category: string | null;
   income_amount: number;
@@ -14,6 +15,8 @@ export type DbEntry = {
   source_type: string;
   payment_source_type: string | null;
 };
+
+export type VendorNameResolver = (entry: DbEntry) => string;
 
 export type CashflowMonthlyRow = {
   check: string;              // 그룹 라벨 (회사명 or 가수금 etc.)
@@ -78,7 +81,11 @@ function dayFromDate(dateStr: string): number {
 
 // ── 핵심 함수 ─────────────────────────────────────────────────────────────────
 
-export function buildMonthlyPivot(entries: DbEntry[], daysInMonth: number): CashflowMonthlyRow[] {
+export function buildMonthlyPivot(
+  entries: DbEntry[],
+  daysInMonth: number,
+  resolveVendorName?: VendorNameResolver,
+): CashflowMonthlyRow[] {
   const map = new Map<string, CashflowMonthlyRow>();
 
   function upsert(key: string, init: Omit<CashflowMonthlyRow, 'total' | 'days' | 'rawEntryIds'>): CashflowMonthlyRow {
@@ -125,7 +132,9 @@ export function buildMonthlyPivot(entries: DbEntry[], daysInMonth: number): Cash
     // ── 일반 항목 ──────────────────────────────────────────────────────────
     } else {
       const check = checkLabel(e.company_code, e.category);
-      const displayName = e.vendor_name_mapped ?? e.vendor_name;
+      const displayName = resolveVendorName
+        ? resolveVendorName(e)
+        : (e.vendor_name_mapped ?? e.vendor_name);
       // 매핑된 거래처명 기준으로 그룹핑 (여러 지점/원본명 → 한 줄)
       const key = `${check}::${e.company_code}::${e.category}::${displayName}`;
 

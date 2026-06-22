@@ -18,6 +18,11 @@ import {
   getCardSettlementPeriod,
   type CardSettlementPeriod,
 } from '@/src/lib/cards/settlement';
+import {
+  buildFcAliasMap,
+  resolveCashflowVendorName,
+  type HtVendorRef,
+} from '@/src/lib/cashflow/resolveVendorName';
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
 
@@ -203,6 +208,7 @@ type CardMatchRow = {
   entry_date:          string;
   category:            string;
   vendor_name:         string | null;
+  hometax_invoice_id:  string | null;
 };
 
 // 카드 거래 1건 표시용 타입
@@ -231,7 +237,8 @@ const VALID_CARD_LABELS = new Set<string>([
 
 function buildCardExpenseGroups(
   rows:     CardTxRow[],
-  matchMap: Map<string, CardMatchRow>
+  matchMap: Map<string, CardMatchRow>,
+  resolveVendor: (vendorName: string, hometaxInvoiceId: string | null) => string,
 ): CardExpenseGroup[] {
   const map = new Map<CardLabel, CardExpenseGroup>();
 
@@ -257,7 +264,9 @@ function buildCardExpenseGroups(
       id:          c.id,
       usedDate:    c.used_date ?? '',
       invoiceDate: match?.entry_date ?? null,
-      vendorName:  match?.vendor_name ?? c.merchant_name ?? '',
+      vendorName:  match
+        ? resolveVendor(match.vendor_name ?? '', match.hometax_invoice_id)
+        : (c.merchant_name ?? ''),
       category:    isHtMatched ? '매입' : '카드지출',
       basis:       isHtMatched ? '계산서 날짜 반영' : '카드 결제일 반영',
       amount:      c.amount,
@@ -453,11 +462,57 @@ export default async function CashflowPage({ searchParams }: Props) {
     (client) =>
       client
         .from('cashflow_entries')
-        .select('id,company_code,entry_date,vendor_name,vendor_name_mapped,category,sub_category,income_amount,expense_amount,match_status,source_type,payment_source_type')
+        .select('id,company_code,entry_date,vendor_name,vendor_name_mapped,hometax_invoice_id,category,sub_category,income_amount,expense_amount,match_status,source_type,payment_source_type')
         .gte('entry_date', startDate)
         .lte('entry_date', endDate)
         .order('entry_date', { ascending: true }) as any,
   );
+
+  // 거래처명: 홈택스 G열 → 고정비 E열 → 기존 vendor_name
+  const htIds = result.status === 'ok'
+    ? [...new Set(result.data.map(e => e.hometax_invoice_id).filter(Boolean))] as string[]
+    : [];
+
+  const [htResult, fcResult] = await Promise.all([
+    htIds.length > 0
+      ? fetchTable<HtVendorRef & { id: string }>(
+          'hometax_invoices',
+          (client) =>
+            client
+              .from('hometax_invoices')
+              .select('id,source_type,vendor_name,customer_name')
+              .in('id', htIds) as any,
+        )
+      : Promise.resolve({ status: 'ok' as const, data: [] as (HtVendorRef & { id: string })[] }),
+    fetchTable<{ vendor_name: string; vendor_alias: string | null }>(
+      'fixed_cost_rules',
+      (client) =>
+        client
+          .from('fixed_cost_rules')
+          .select('vendor_name,vendor_alias')
+          .eq('is_active', true) as any,
+    ),
+  ]);
+
+  const htById = new Map<string, HtVendorRef>();
+  if (htResult.status === 'ok') {
+    for (const ht of htResult.data) {
+      htById.set(ht.id, ht);
+    }
+  }
+  const fcAliasByVendorName = fcResult.status === 'ok'
+    ? buildFcAliasMap(fcResult.data)
+    : new Map<string, string>();
+
+  const resolveVendor = (entry: DbEntry) =>
+    resolveCashflowVendorName(entry, htById, fcAliasByVendorName);
+
+  const resolveVendorByFields = (vendorName: string, hometaxInvoiceId: string | null) =>
+    resolveCashflowVendorName(
+      { vendor_name: vendorName, hometax_invoice_id: hometaxInvoiceId },
+      htById,
+      fcAliasByVendorName,
+    );
 
   // 카드 결제 대상 기간: 전월 6일 ~ 당월 5일 사용분 → 당월 20일 결제
   // (우리카드·기업카드 동일 기준, entry_date 대신 used_date 기준으로 직접 조회)
@@ -474,7 +529,7 @@ export default async function CashflowPage({ searchParams }: Props) {
         .gt('amount', 0) as any,
   );
 
-  const pivotRows    = result.status === 'ok' ? buildMonthlyPivot(result.data, daysInMonth) : [];
+  const pivotRows    = result.status === 'ok' ? buildMonthlyPivot(result.data, daysInMonth, resolveVendor) : [];
   const summary      = result.status === 'ok' && result.data.length > 0
     ? buildCashflowMonthlySummary(result.data, monthStr(year, month), daysInMonth)
     : null;
@@ -487,7 +542,7 @@ export default async function CashflowPage({ searchParams }: Props) {
         (client) =>
           client
             .from('cashflow_entries')
-            .select('card_transaction_id,entry_date,category,vendor_name')
+            .select('card_transaction_id,entry_date,category,vendor_name,hometax_invoice_id')
             .in('card_transaction_id', cardTxIds)
             .in('category', ['매입', '매출']) as any,
       )
@@ -501,7 +556,7 @@ export default async function CashflowPage({ searchParams }: Props) {
   }
 
   const cardGroups = cardTxResult.status === 'ok'
-    ? buildCardExpenseGroups(cardTxResult.data, matchMap)
+    ? buildCardExpenseGroups(cardTxResult.data, matchMap, resolveVendorByFields)
     : [];
 
   return (

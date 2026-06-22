@@ -167,7 +167,7 @@ export class MatchingEngine {
         id:              makeId('cf'),
         company:         b.company,
         date:            b.transactionDate,
-        vendorName:      bestFc.vendorName,
+        vendorName:      bestFc.vendorAlias || bestFc.vendorName,
         category:        bestFc.isCardBill ? '카드결제' : '고정비',
         subCategory:     bestFc.category,
         incomeAmount:    0,
@@ -265,7 +265,7 @@ export class MatchingEngine {
         matchReason:      top.reason,
       });
 
-      const vname = [ht.vendorName, ht.itemName].filter(Boolean).join(' ');
+      const vname = ht.vendorName;
       // 카드 매칭 시 entry_date = 홈택스 계산서 작성일 (카드 사용일 아님)
       // 은행 매칭 시 entry_date = 은행 거래일 (top.date)
       const entryDate = top.bankId ? top.date : ht.issueDate;
@@ -341,7 +341,7 @@ export class MatchingEngine {
         matchReason:      top.reason,
       });
 
-      const vname = [ht.customerName, ht.itemName].filter(Boolean).join(' ');
+      const vname = ht.customerName;
       this.cashflow.push({
         id:              makeId('cf'),
         company:         ht.company,
@@ -441,12 +441,11 @@ export class MatchingEngine {
     ht: TaggedHT, status: MatchStatus, reason: string,
     bankId: string, cardId: string, date: string
   ): CashflowEntry {
-    const vname = [ht.vendorName, ht.itemName].filter(Boolean).join(' ');
     return {
       id:              makeId('cf'),
       company:         ht.company,
       date,
-      vendorName:      vname,
+      vendorName:      ht.vendorName,
       category:        '매입',
       subCategory:     ht.taxType === 'exempt' ? '매입(면세)' : '매입(과세)',
       incomeAmount:    0,
@@ -466,12 +465,11 @@ export class MatchingEngine {
     ht: TaggedHT, status: MatchStatus, reason: string,
     bankId: string, date: string
   ): CashflowEntry {
-    const vname = [ht.customerName, ht.itemName].filter(Boolean).join(' ');
     return {
       id:              makeId('cf'),
       company:         ht.company,
       date,
-      vendorName:      vname,
+      vendorName:      ht.customerName,
       category:        '매출',
       subCategory:     '매출수금',
       incomeAmount:    ht.totalAmount,
