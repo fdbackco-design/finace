@@ -15,9 +15,9 @@ export async function POST(req: NextRequest) {
   }
 
   const username = (body.username ?? '').trim();
-  const password = body.password ?? '';
+  const password = (body.password ?? '').trim();
 
-  if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
+  if (!process.env.ADMIN_USERNAME?.trim() || !process.env.ADMIN_PASSWORD?.trim()) {
     return NextResponse.json(
       { ok: false, error: '서버 인증 설정이 없습니다. ADMIN_USERNAME / ADMIN_PASSWORD를 등록하세요.' },
       { status: 503 },

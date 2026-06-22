@@ -43,7 +43,7 @@ export function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
-  if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
+  if (!process.env.ADMIN_USERNAME?.trim() || !process.env.ADMIN_PASSWORD?.trim()) {
     return new NextResponse(
       '서버 설정 오류: ADMIN_USERNAME / ADMIN_PASSWORD 환경변수를 등록해 주세요.',
       { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } },

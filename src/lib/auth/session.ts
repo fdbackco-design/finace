@@ -4,10 +4,16 @@ export const AUTH_COOKIE = 'finance_auth';
 const SESSION_VERSION    = 'v1';
 const MAX_AGE_SEC        = 60 * 60 * 24 * 7; // 7일
 
+function adminUsername(): string {
+  return (process.env.ADMIN_USERNAME ?? '').trim();
+}
+
+function adminPassword(): string {
+  return (process.env.ADMIN_PASSWORD ?? '').trim();
+}
+
 function sessionSecret(): string {
-  const user = process.env.ADMIN_USERNAME ?? '';
-  const pass = process.env.ADMIN_PASSWORD ?? '';
-  return `${user}:${pass}`;
+  return `${adminUsername()}:${adminPassword()}`;
 }
 
 export function createSessionToken(): string {
@@ -17,7 +23,7 @@ export function createSessionToken(): string {
 }
 
 export function verifySessionToken(token: string | undefined | null): boolean {
-  if (!token || !process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) return false;
+  if (!token || !adminUsername() || !adminPassword()) return false;
   const expected = createSessionToken();
   if (token.length !== expected.length) return false;
   try {
@@ -28,10 +34,22 @@ export function verifySessionToken(token: string | undefined | null): boolean {
 }
 
 export function verifyCredentials(username: string, password: string): boolean {
-  const expectedUser = process.env.ADMIN_USERNAME ?? '';
-  const expectedPass = process.env.ADMIN_PASSWORD ?? '';
+  const expectedUser = adminUsername();
+  const expectedPass = adminPassword();
   if (!expectedUser || !expectedPass) return false;
-  return safeEqual(username, expectedPass) && safeEqual(password, expectedPass);
+  return safeEqual(username.trim(), expectedUser) && safeEqual(password.trim(), expectedPass);
+}
+
+/** env-check 등 진단용 — 실제 값은 노출하지 않음 */
+export function getAdminAuthEnvStatus() {
+  const username = adminUsername();
+  const password = adminPassword();
+  return {
+    hasUsername: Boolean(username),
+    hasPassword: Boolean(password),
+    usernameLength: username.length,
+    passwordLength: password.length,
+  };
 }
 
 function safeEqual(a: string, b: string): boolean {
