@@ -48,7 +48,8 @@ export interface CardTransaction {
 export interface HometaxInvoice {
   company: CompanyCode;
   sourceType: 'HT_PURCHASE_TAX' | 'HT_PURCHASE' | 'HT_SALES_TAX';
-  issueDate: string;           // YYYY-MM-DD
+  writtenDate: string;         // A열: 작성일자
+  issuedDate: string;          // C열: 발급일자 (자금수지·매칭 기준)
   approvalNumber: string;
   vendorName: string;          // G열: 공급자 상호
   customerName: string;        // L열: 공급받는자 상호

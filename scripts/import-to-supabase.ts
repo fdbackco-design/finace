@@ -153,7 +153,8 @@ async function main() {
     company_id:             companyMap[h.company],
     company_code:           h.company,
     source_type:            h.sourceType,
-    issue_date:             h.issueDate,
+    issue_date:             h.issuedDate,
+    written_date:           h.writtenDate           || null,
     approval_number:        h.approvalNumber       || null,
     vendor_name:            h.vendorName           || null,
     customer_name:          h.customerName         || null,
@@ -168,7 +169,7 @@ async function main() {
     receipt_type:           h.receiptType           || null,
     is_cancelled:           h.isCancelled           ?? false,
     source_hash: sha256(
-      `ht|${h.company}|${h.sourceType}|${h.approvalNumber}|${h.issueDate}`
+      `ht|${h.company}|${h.sourceType}|${h.approvalNumber}|${h.writtenDate}`
     ),
   }));
 

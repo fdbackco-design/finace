@@ -56,12 +56,12 @@ export type CashflowDateDecision = {
  */
 export function resolveCardCashflowDate(input: {
   paymentDueDate: string;
-  matchedPurchaseInvoice?: { id: string; issueDate: string } | null;
-  matchedSalesInvoice?:   { id: string; issueDate: string } | null;
+  matchedPurchaseInvoice?: { id: string; issuedDate: string } | null;
+  matchedSalesInvoice?:   { id: string; issuedDate: string } | null;
 }): CashflowDateDecision {
   if (input.matchedPurchaseInvoice) {
     return {
-      entryDate: input.matchedPurchaseInvoice.issueDate,
+      entryDate: input.matchedPurchaseInvoice.issuedDate,
       category:  '매입',
       basis:     'HOMETAX_INVOICE_DATE',
       invoiceId: input.matchedPurchaseInvoice.id,
@@ -72,7 +72,7 @@ export function resolveCardCashflowDate(input: {
     // → MANUAL_REVIEW 처리를 위해 '매출' 카테고리와 함께 반환하되
     //   매칭 엔진에서 match_status='MANUAL_REVIEW'로 설정해야 함
     return {
-      entryDate: input.matchedSalesInvoice.issueDate,
+      entryDate: input.matchedSalesInvoice.issuedDate,
       category:  '매출',
       basis:     'HOMETAX_INVOICE_DATE',
       invoiceId: input.matchedSalesInvoice.id,

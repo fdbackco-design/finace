@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { HometaxInvoice, CompanyCode, ParsedFileResult, ParseError } from '../lib/types';
+import { parseHometaxRowDates } from './hometaxDateUtils';
 
 function parseAmount(v: unknown): number {
   if (typeof v === 'number') return Math.round(v);
@@ -26,7 +27,7 @@ export function parseHometaxSalesTax(
     if (!row[0] || !/^\d{4}-\d{2}-\d{2}/.test(String(row[0]))) continue;
 
     try {
-      const issueDate        = String(row[0]).substring(0, 10);
+      const { writtenDate, issuedDate } = parseHometaxRowDates(row);
       const approvalNumber   = String(row[1] ?? '');
       const vendorBusinessNo = String(row[4] ?? '');
       const vendorName       = String(row[6] ?? '');  // G열: 우리 회사 (참고용)
@@ -44,7 +45,8 @@ export function parseHometaxSalesTax(
       records.push({
         company,
         sourceType: 'HT_SALES_TAX',
-        issueDate,
+        writtenDate,
+        issuedDate,
         approvalNumber,
         vendorName,
         customerName,

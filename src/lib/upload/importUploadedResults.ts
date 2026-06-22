@@ -37,7 +37,7 @@ function cardHash(c: CardTransaction): string {
   return sha256(`card|${c.company}|${c.sourceType}|${c.usedAt}|${c.merchantName}|${c.amount}|${c.approvalNumber}`);
 }
 function htHash(h: HometaxInvoice): string {
-  return sha256(`ht|${h.company}|${h.sourceType}|${h.approvalNumber}|${h.issueDate}`);
+  return sha256(`ht|${h.company}|${h.sourceType}|${h.approvalNumber}|${h.writtenDate}`);
 }
 
 // ── bank_transactions DB row ──────────────────────────────────────────────────
@@ -91,7 +91,8 @@ function toHtRow(h: HometaxInvoice, companyMap: Record<string, string>, hash: st
     company_id:             companyMap[h.company]     ?? null,
     company_code:           h.company,
     source_type:            h.sourceType,
-    issue_date:             h.issueDate,
+    issue_date:             h.issuedDate,
+    written_date:           h.writtenDate            || null,
     approval_number:        h.approvalNumber          || null,
     vendor_name:            h.vendorName              || null,
     customer_name:          h.customerName            || null,

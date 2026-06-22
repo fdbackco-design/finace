@@ -201,7 +201,7 @@ export class MatchingEngine {
         if (b.withdrawAmount <= 0) continue;
 
         const r = scoreCandidate(
-          ht.totalAmount, ht.vendorName, ht.issueDate,
+          ht.totalAmount, ht.vendorName, ht.issuedDate,
           b.withdrawAmount,
           [b.description, b.counterAccountName, b.counterAccountNo],
           b.transactionDate
@@ -219,7 +219,7 @@ export class MatchingEngine {
 
         const cardDate = c.usedAt.substring(0, 10);
         const r = scoreCandidate(
-          ht.totalAmount, ht.vendorName, ht.issueDate,
+          ht.totalAmount, ht.vendorName, ht.issuedDate,
           c.amount,
           [c.merchantName, c.businessNo],
           cardDate
@@ -231,7 +231,7 @@ export class MatchingEngine {
 
       if (candidates.length === 0) {
         // Unmatched HT: create cashflow entry with invoice date
-        this.cashflow.push(this.htEntry(ht, 'UNMATCHED', 'hometax_unmatched', '', '', ht.issueDate));
+        this.cashflow.push(this.htEntry(ht, 'UNMATCHED', 'hometax_unmatched', '', '', ht.issuedDate));
         continue;
       }
 
@@ -266,9 +266,8 @@ export class MatchingEngine {
       });
 
       const vname = ht.vendorName;
-      // 카드 매칭 시 entry_date = 홈택스 계산서 작성일 (카드 사용일 아님)
-      // 은행 매칭 시 entry_date = 은행 거래일 (top.date)
-      const entryDate = top.bankId ? top.date : ht.issueDate;
+      // 자금수지 entry_date = 홈택스 C열 발급일자 (은행·카드 매칭 공통)
+      const entryDate = ht.issuedDate;
       this.cashflow.push({
         id:              makeId('cf'),
         company:         ht.company,
@@ -281,7 +280,7 @@ export class MatchingEngine {
         sourceType:      ht.sourceType,
         paymentSourceType: paySourceType,
         matchStatus:     status,
-        matchReason:     top.reason + (ht.isCancelled ? ' [수정계산서주의]' : '') + (top.cardId ? ` [카드결제: 계산서일자 ${ht.issueDate} 기준]` : ''),
+        matchReason:     top.reason + (ht.isCancelled ? ' [수정계산서주의]' : '') + (top.cardId ? ` [카드결제: 발급일자 ${ht.issuedDate} 기준]` : ''),
         hometaxInvoiceId: ht._id,
         bankTransactionId: top.bankId,
         cardTransactionId: top.cardId,
@@ -305,7 +304,7 @@ export class MatchingEngine {
         if (b.depositAmount <= 0) continue;
 
         const r = scoreCandidate(
-          ht.totalAmount, ht.customerName, ht.issueDate,
+          ht.totalAmount, ht.customerName, ht.issuedDate,
           b.depositAmount,
           [b.description, b.counterAccountName],
           b.transactionDate
@@ -316,7 +315,7 @@ export class MatchingEngine {
       }
 
       if (candidates.length === 0) {
-        this.cashflow.push(this.htSalesEntry(ht, 'UNMATCHED', 'hometax_sales_unmatched', '', ht.issueDate));
+        this.cashflow.push(this.htSalesEntry(ht, 'UNMATCHED', 'hometax_sales_unmatched', '', ht.issuedDate));
         continue;
       }
 
@@ -345,7 +344,7 @@ export class MatchingEngine {
       this.cashflow.push({
         id:              makeId('cf'),
         company:         ht.company,
-        date:            top.date,
+        date:            ht.issuedDate,
         vendorName:      vname,
         category:        '매출',
         subCategory:     '매출수금',
