@@ -1129,3 +1129,119 @@ tbody tr:hover td {
   font-size: 13px;
   color: #92400e;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   이자 관리 페이지
+══════════════════════════════════════════════════════════════ */
+.interest-page { max-width: 1200px; margin: 0 auto; padding: 24px 20px; }
+
+.interest-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+/* 회사별 월 이자 요약 카드 */
+.interest-summary {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.interest-summary-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 20px;
+  min-width: 160px;
+}
+.interest-summary-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+.interest-summary-value { font-size: 18px; font-weight: 700; color: #dc2626; }
+
+/* 등록/수정 폼 */
+.interest-form {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.interest-form-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: #1e293b;
+}
+.interest-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px 20px;
+}
+
+/* 목록 헤더 */
+.interest-list-header {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px 6px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+/* 목록 */
+.interest-list {
+  border: 1px solid #e2e8f0;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+}
+.interest-loan-row {
+  background: #fff;
+  border-bottom: 1px solid #f1f5f9;
+  padding: 12px;
+  transition: background 0.1s;
+}
+.interest-loan-row:last-child { border-bottom: none; }
+.interest-loan-row:hover { background: #fafafa; }
+.interest-loan-row--editing {
+  background: #f8fafc;
+  padding: 16px;
+}
+.interest-loan-cells {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.interest-loan-memo {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+  padding-left: 2px;
+}
+
+/* 셀 너비 */
+.interest-cell                 { font-size: 13px; }
+.interest-cell-company         { min-width: 52px;  font-weight: 600; }
+.interest-cell-bank            { min-width: 80px;  color: #334155; }
+.interest-cell-account         { min-width: 120px; color: #64748b; font-size: 12px; }
+.interest-cell-institution     { min-width: 120px; font-weight: 600; color: #0f766e; }
+.interest-cell-period          { min-width: 190px; font-size: 12px; color: #64748b; }
+.interest-cell-day             { min-width: 80px;  color: #334155; }
+.interest-cell-amount          { min-width: 120px; font-weight: 700; color: #dc2626; }
+.interest-cell-actions         { margin-left: auto; display: flex; gap: 6px; }
+
+.interest-empty {
+  padding: 48px;
+  text-align: center;
+  color: #94a3b8;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}

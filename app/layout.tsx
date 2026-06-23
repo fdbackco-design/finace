@@ -17,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <a href="/upload"       className="nav-link">파일 업로드</a>
           <a href="/unmatched"    className="nav-link">미매칭 검토</a>
           <a href="/vendors"      className="nav-link">거래처 관리</a>
+          <a href="/interest"     className="nav-link">이자 관리</a>
           <a href="/dashboard"    className="nav-link">대시보드</a>
           <LogoutButton />
         </nav>
