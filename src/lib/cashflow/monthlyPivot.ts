@@ -253,16 +253,28 @@ export function buildMonthlyPivot(
     }
   }
 
-  // ── 정렬: 그룹 order → check order → category → vendorName ──────────────
+  // ── 정렬: check order → 비그룹 먼저 → 그룹별 cluster → groupOrder ────────
   const rows = Array.from(map.values());
   rows.sort((a, b) => {
-    // 그룹 내 항목은 group_order 기준 (같은 그룹끼리 묶음)
-    if (a.groupId && b.groupId && a.groupId === b.groupId) {
-      return a.groupOrder - b.groupOrder;
-    }
+    // 1. 회사 섹션 기준
     const aOrd = CHECK_ORDER[a.check] ?? 99;
     const bOrd = CHECK_ORDER[b.check] ?? 99;
     if (aOrd !== bOrd) return aOrd - bOrd;
+
+    // 2. 비그룹 항목 먼저, 그룹 항목은 섹션 하단
+    const aGrp = !!a.groupId;
+    const bGrp = !!b.groupId;
+    if (aGrp !== bGrp) return aGrp ? 1 : -1;
+
+    // 3. 그룹끼리: 그룹명 → 그룹 내 order
+    if (aGrp && bGrp) {
+      if (a.groupId !== b.groupId) {
+        return (a.groupName ?? '').localeCompare(b.groupName ?? '', 'ko');
+      }
+      return a.groupOrder - b.groupOrder;
+    }
+
+    // 4. 둘 다 비그룹: 카테고리 → 거래처명
     if (a.category !== b.category) return a.category.localeCompare(b.category, 'ko');
     return a.vendorName.localeCompare(b.vendorName, 'ko');
   });

@@ -505,20 +505,18 @@ export default function PivotTable({
     });
   }, [localRows, selected]);
 
-  // ── 그룹별 행 구조 ───────────────────────────────────────────────────────
+  // ── 그룹 메타 계산 (그룹 헤더 표시용) ───────────────────────────────────
 
-  // 그룹 ID → 행 목록
-  const groupMap = new Map<string, CashflowMonthlyRow[]>();
-  const noGroupRows: CashflowMonthlyRow[] = [];
-
+  type GroupMeta = { name: string; total: number; memberCount: number };
+  const groupMeta = new Map<string, GroupMeta>();
   for (const row of localRows) {
-    if (row.groupId) {
-      const arr = groupMap.get(row.groupId) ?? [];
-      arr.push(row);
-      groupMap.set(row.groupId, arr);
-    } else {
-      noGroupRows.push(row);
+    if (!row.groupId) continue;
+    if (!groupMeta.has(row.groupId)) {
+      groupMeta.set(row.groupId, { name: row.groupName ?? '그룹', total: 0, memberCount: 0 });
     }
+    const gm = groupMeta.get(row.groupId)!;
+    gm.total      += row.total;
+    gm.memberCount++;
   }
 
   // check 그룹별 묶기 (기존 로직)
@@ -705,55 +703,52 @@ export default function PivotTable({
             </tr>
           </thead>
           <tbody>
-            {/* 그룹화된 행 */}
-            {Array.from(groupMap.entries()).map(([groupId, groupRows]) => {
-              const groupName   = groupRows[0]?.groupName ?? '그룹';
-              const groupTotal  = groupRows.reduce((s, r) => s + r.total, 0);
-              const isCollapsed = collapsedGrp.has(groupId);
-              const totFmt      = fmtAmt(groupTotal);
-
-              return (
-                <Fragment key={`grp-${groupId}`}>
-                  {/* 그룹 헤더 행 */}
-                  <tr className="pivot-group-row">
-                    <td colSpan={1}>
-                      <button
-                        className="group-toggle-btn"
-                        onClick={() => toggleGroup(groupId)}
-                        title={isCollapsed ? '펼치기' : '접기'}
-                      >
-                        {isCollapsed ? '▸' : '▾'}
-                      </button>
-                    </td>
-                    <td colSpan={2} className="group-name-cell">
-                      {groupName}
-                      <span className="group-meta">&nbsp;·&nbsp;{groupRows.length}건</span>
-                    </td>
-                    <td className={`num ${totFmt.cls}`}>{totFmt.text}</td>
-                    <td colSpan={daysInMonth} />
+            {(() => {
+              const seenGroupIds = new Set<string>();
+              return groupByCheck(localRows).map(([check, sectionRows]) => (
+                <Fragment key={`section-${check}`}>
+                  <tr className="pivot-group-header">
+                    <td colSpan={4 + daysInMonth}>{check}</td>
                   </tr>
-                  {/* 그룹 내 항목 (펼쳤을 때) */}
-                  {!isCollapsed && groupByCheck(groupRows).map(([chk, chkRows]) => (
-                    <Fragment key={`grp-${groupId}-chk-${chk}`}>
-                      <tr className="pivot-group-header">
-                        <td colSpan={4 + daysInMonth}>{chk}</td>
-                      </tr>
-                      {chkRows.map((row, ri) => renderRow(row, ri, `${groupId}-${chk}`))}
-                    </Fragment>
-                  ))}
-                </Fragment>
-              );
-            })}
+                  {sectionRows.map((row, ri) => {
+                    if (!row.groupId) {
+                      return renderRow(row, ri, check);
+                    }
+                    const isFirstInGroup = !seenGroupIds.has(row.groupId);
+                    if (isFirstInGroup) seenGroupIds.add(row.groupId);
+                    const isCollapsed = collapsedGrp.has(row.groupId);
+                    const gm = groupMeta.get(row.groupId);
+                    if (!gm) return null;
+                    const totFmt = fmtAmt(gm.total);
 
-            {/* 그룹 미포함 행 */}
-            {groupByCheck(noGroupRows).map(([check, groupRows]) => (
-              <Fragment key={`grp-${check}`}>
-                <tr className="pivot-group-header">
-                  <td colSpan={4 + daysInMonth}>{check}</td>
-                </tr>
-                {groupRows.map((row, ri) => renderRow(row, ri, check))}
-              </Fragment>
-            ))}
+                    return (
+                      <Fragment key={`grp-member-${row.groupId}-${ri}`}>
+                        {isFirstInGroup && (
+                          <tr className="pivot-group-row">
+                            <td className="sticky-col-1">
+                              <button
+                                className="group-toggle-btn"
+                                onClick={() => toggleGroup(row.groupId!)}
+                                title={isCollapsed ? '펼치기' : '접기'}
+                              >
+                                {isCollapsed ? '▸' : '▾'}
+                              </button>
+                            </td>
+                            <td colSpan={2} className="group-name-cell">
+                              {gm.name}
+                              <span className="group-meta">&nbsp;·&nbsp;{gm.memberCount}건</span>
+                            </td>
+                            <td className={`sticky-col-4 num ${totFmt.cls}`}>{totFmt.text}</td>
+                            <td colSpan={daysInMonth} />
+                          </tr>
+                        )}
+                        {!isCollapsed && renderRow(row, ri, check)}
+                      </Fragment>
+                    );
+                  })}
+                </Fragment>
+              ));
+            })()}
           </tbody>
         </table>
       </div>
