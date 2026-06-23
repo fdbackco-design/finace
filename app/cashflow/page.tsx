@@ -99,7 +99,7 @@ function SummarySection({ summary, daysInMonth, year, month }: {
     <div className="summary-section">
       <div className="summary-cards">
         <div className="summary-card summary-cash">
-          <div className="summary-card-label">현금입금 합계</div>
+          <div className="summary-card-label">가수금 합계</div>
           <div className="summary-card-value amt-income">{fmtNum(totals.cashIncomeTotal)}</div>
         </div>
         <div className="summary-card summary-sales">
@@ -134,7 +134,7 @@ function SummarySection({ summary, daysInMonth, year, month }: {
           </thead>
           <tbody>
             <tr className="sum-row-cash">
-              <td className="sum-col-label">현금입금</td>
+              <td className="sum-col-label">가수금</td>
               <td className="sum-col-total num amt-income">{fmtNum(totals.cashIncomeTotal)}</td>
               {dayNums.map(d => {
                 const v = daily.cashIncome[d];

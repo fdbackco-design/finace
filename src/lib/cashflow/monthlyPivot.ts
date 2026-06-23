@@ -310,8 +310,8 @@ export function buildCashflowMonthlySummary(
     // 매출수금: category='매출' OR source_type='HT_SALES_TAX'
     if (e.income_amount > 0 && (e.category === '매출' || e.source_type === 'HT_SALES_TAX')) {
       add(daily.salesCollection, day, e.income_amount);
-    // 현금입금: income > 0 AND NOT 매출 (가수금 포함)
-    } else if (e.income_amount > 0 && e.category !== '매출') {
+    // 가수금만 현금입금 합계에 포함
+    } else if (e.income_amount > 0 && e.category === '가수금') {
       add(daily.cashIncome, day, e.income_amount);
     }
 
