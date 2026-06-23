@@ -22,15 +22,20 @@ function scoreCandidate(
   htDate: string,
   candidateAmount: number,
   candidateVendorFields: string[],
-  candidateDate: string
+  candidateDate: string,
+  maxDateDiff = 7   // HT매출은 7일, HT매입은 60일로 호출
 ): { score: number; reason: string } {
   const amountDiff = Math.abs(htAmount - candidateAmount);
   if (amountDiff > 10) return { score: 0, reason: '' }; // amount must match within ₩10
 
   const dateDiff = daysBetween(htDate, candidateDate);
-  if (dateDiff > 7) return { score: 0, reason: '' }; // date must be within ±7 days
+  if (dateDiff > maxDateDiff) return { score: 0, reason: '' };
 
-  const dateScore = dateDiff <= 1 ? 0.4 : dateDiff <= 3 ? 0.3 : 0.2;
+  // 날짜 점수: 1일 이내 0.4, 3일 이내 0.3, 7일 이내 0.2, 30일 이내 0.2, 그 이후 0.1
+  const dateScore = dateDiff <= 1 ? 0.4
+                  : dateDiff <= 3 ? 0.3
+                  : dateDiff <= 30 ? 0.2
+                  : 0.1;
   const vendorScore = Math.max(...candidateVendorFields.map(f => similarity(htVendor, f)));
   const score = 0.5 + dateScore + vendorScore * 0.1; // amount already matched → base 0.5
 
@@ -194,7 +199,7 @@ export class MatchingEngine {
     for (const ht of purchaseHts) {
       const candidates: HtCandidate[] = [];
 
-      // Bank candidates (withdraw)
+      // Bank candidates (withdraw) — 매입계산서 지급은 수십일 후 이뤄질 수 있어 60일 윈도우 사용
       for (const b of this.banks) {
         if (this.usedBankIds.has(b._id)) continue;
         if (b.company !== ht.company) continue;
@@ -204,14 +209,15 @@ export class MatchingEngine {
           ht.totalAmount, ht.vendorName, ht.issuedDate,
           b.withdrawAmount,
           [b.description, b.counterAccountName, b.counterAccountNo],
-          b.transactionDate
+          b.transactionDate,
+          60   // 매입: 최대 60일
         );
         if (r.score > 0) {
           candidates.push({ bankId: b._id, cardId: '', score: r.score, reason: r.reason, date: b.transactionDate });
         }
       }
 
-      // Card candidates
+      // Card candidates — 카드는 사용일 기준 7일 이내
       for (const c of this.cards) {
         if (this.usedCardIds.has(c._id)) continue;
         if (c.company !== ht.company) continue;
@@ -222,7 +228,8 @@ export class MatchingEngine {
           ht.totalAmount, ht.vendorName, ht.issuedDate,
           c.amount,
           [c.merchantName, c.businessNo],
-          cardDate
+          cardDate,
+          7
         );
         if (r.score > 0) {
           candidates.push({ bankId: '', cardId: c._id, score: r.score, reason: r.reason, date: cardDate });
