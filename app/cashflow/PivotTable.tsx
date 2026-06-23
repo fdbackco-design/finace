@@ -197,12 +197,16 @@ function CategoryDropdown({
   const [addMode,  setAddMode]  = useState(false);
   const [newItem,  setNewItem]  = useState('');
   const [isPending, start]      = useTransition();
-  const btnRef = useRef<HTMLButtonElement>(null);
+  const btnRef  = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  // 스크롤·리사이즈 시 닫기
+  // 드롭다운 바깥 스크롤·리사이즈 시 닫기 (메뉴 내부 스크롤은 제외)
   useEffect(() => {
     if (!open) return;
-    const close = () => setOpen(false);
+    const close = (e: Event) => {
+      if (menuRef.current && menuRef.current.contains(e.target as Node)) return;
+      setOpen(false);
+    };
     window.addEventListener('scroll', close, true);
     window.addEventListener('resize', close);
     return () => {
@@ -262,6 +266,7 @@ function CategoryDropdown({
             onMouseDown={() => setOpen(false)}
           />
           <div
+            ref={menuRef}
             className="cat-dropdown-menu"
             style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: pos.width, zIndex: 10000 }}
             onMouseDown={e => e.preventDefault()}
