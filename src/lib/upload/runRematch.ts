@@ -108,8 +108,11 @@ export async function runRematch(month: string): Promise<RematchResult> {
   const lastDay  = new Date(year, mon, 0).getDate();
   const monthStart = `${month}-01`;
   const monthEnd   = `${month}-${String(lastDay).padStart(2, '0')}`;
+  // 매출계산서는 발행 후 7일 이내 입금이 일반적이나, 매입계산서는 최대 60일.
+  // HT 범위를 bankFrom과 동일하게 확장해 전월 미매칭 계산서도 포함한다.
   const bankFrom   = addDays(monthStart, -60);
   const bankTo     = addDays(monthEnd,    60);
+  const htFrom     = bankFrom;   // 전월 발행 계산서도 포함
 
   // ── 회사 ID 맵 ──────────────────────────────────────────────────────────────
   const { data: companies, error: cErr } = await (client as any)
@@ -137,7 +140,7 @@ export async function runRematch(month: string): Promise<RematchResult> {
   const { data: htData, error: htErr } = await (client as any)
     .from('hometax_invoices')
     .select('id,company_code,source_type,issue_date,written_date,approval_number,vendor_name,customer_name,vendor_business_no,item_name,total_amount,supply_amount,tax_amount,invoice_direction,tax_type,invoice_classification,receipt_type,is_cancelled')
-    .gte('issue_date', monthStart)
+    .gte('issue_date', htFrom)
     .lte('issue_date', monthEnd);
   if (htErr) errors.push(`hometax 로드 실패: ${htErr.message}`);
 

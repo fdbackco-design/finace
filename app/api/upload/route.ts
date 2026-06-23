@@ -23,8 +23,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CompanyCode, SourceType }   from '@/src/lib/types';
 import { parseUploadedFile }          from '@/src/lib/upload/parseUploadedFile';
-import { runUploadMatching }          from '@/src/lib/upload/runUploadMatching';
 import { importUploadedResults }      from '@/src/lib/upload/importUploadedResults';
+import { runRematch }                 from '@/src/lib/upload/runRematch';
 import type { BankTransaction, CardTransaction, HometaxInvoice } from '@/src/lib/types';
 
 export const dynamic    = 'force-dynamic';
@@ -139,27 +139,40 @@ export async function POST(req: NextRequest): Promise<NextResponse<UploadApiResp
     }
   }
 
-  // ── 매칭 실행 ────────────────────────────────────────────────────────────────
-  let matchResult = { cashflowEntries: [] as any[], autoMatched: 0, manualReview: 0, unmatched: 0, fixedCostsLoaded: 0, errors: [] as string[] };
-  if (allBanks.length + allCards.length + allHts.length > 0) {
-    try {
-      matchResult = await runUploadMatching(allBanks, allCards, allHts);
-    } catch (e) {
-      return NextResponse.json({ ...empty, month: selectedMonth, files: fileResults, error: `매칭 엔진 오류: ${e}` }, { status: 500 });
-    }
-  }
-
-  // ── Supabase 반영 ────────────────────────────────────────────────────────────
+  // ── Supabase 원천 데이터 upsert (cashflow_entries는 rematch가 생성) ──────────
   const label = `web_upload_${selectedMonth}_${Date.now()}`;
   let importResult = { sessionId: '', bankUpserted: 0, cardUpserted: 0, htUpserted: 0, cashflowCreated: 0, cashflowSkipped: 0, bankIdMap: {}, cardIdMap: {}, htIdMap: {}, errors: [] as string[] };
 
   if (allBanks.length + allCards.length + allHts.length > 0) {
     try {
-      importResult = await importUploadedResults(label, allBanks, allCards, allHts, matchResult.cashflowEntries);
+      // cashflow_entries 생성은 rematch에서 담당하므로 빈 배열 전달
+      importResult = await importUploadedResults(label, allBanks, allCards, allHts, []);
     } catch (e) {
       return NextResponse.json({ ...empty, month: selectedMonth, files: fileResults, error: `DB 반영 오류: ${e}` }, { status: 500 });
     }
   }
+
+  // ── 영향 월별 rematch 실행 ──────────────────────────────────────────────────
+  const affectedMonths = getAffectedMonths(allBanks, allCards, allHts);
+  let autoMatched = 0, manualReview = 0, unmatchedCount = 0, cashflowCreated = 0;
+  const rematchErrors: string[] = [];
+
+  for (const m of affectedMonths) {
+    try {
+      const r = await runRematch(m);
+      autoMatched    += r.autoMatched;
+      manualReview   += r.manualReview;
+      unmatchedCount += r.unmatched;
+      cashflowCreated += r.createdCount;
+      if (r.errors.length > 0) rematchErrors.push(...r.errors.map(e => `[${m}] ${e}`));
+    } catch (e) {
+      rematchErrors.push(`[${m}] rematch 실패: ${e}`);
+    }
+  }
+  importResult.cashflowCreated = cashflowCreated;
+  importResult.errors.push(...rematchErrors);
+
+  const matchResult = { autoMatched, manualReview, unmatched: unmatchedCount };
 
   // ── 파일별 insertedCount 업데이트 ────────────────────────────────────────────
   let bankOffset = 0, cardOffset = 0, htOffset = 0;
@@ -200,3 +213,25 @@ export async function POST(req: NextRequest): Promise<NextResponse<UploadApiResp
 
 // ── 유효 회사 목록 ────────────────────────────────────────────────────────────
 const VALID_COMPANIES: CompanyCode[] = ['feedback', 'sangsaeng', 'shootmoon'];
+
+// ── 업로드된 데이터에서 영향 받는 월 목록 추출 ──────────────────────────────
+function getAffectedMonths(
+  banks: BankTransaction[],
+  cards: CardTransaction[],
+  hts:   HometaxInvoice[],
+): string[] {
+  const months = new Set<string>();
+  for (const b of banks) {
+    const m = b.transactionDate?.substring(0, 7);
+    if (m) months.add(m);
+  }
+  for (const c of cards) {
+    const m = c.usedAt?.substring(0, 7) ?? c.paymentDueDate?.substring(0, 7);
+    if (m) months.add(m);
+  }
+  for (const h of hts) {
+    const m = (h.writtenDate || h.issuedDate)?.substring(0, 7);
+    if (m) months.add(m);
+  }
+  return Array.from(months).sort();
+}
