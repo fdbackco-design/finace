@@ -93,6 +93,47 @@ const CHECK_ORDER: Record<string, number> = {
 
 // ── 내부 헬퍼 ────────────────────────────────────────────────────────────────
 
+/**
+ * amount_status가 DB에 없을 때 income/invoice 금액으로 유추
+ * V2 이전 데이터 또는 미매칭 항목 대응
+ */
+function deriveAmountStatus(e: DbEntry): string | null {
+  if (e.amount_status) return e.amount_status;
+
+  const isSales = e.category === '매출' || e.source_type === 'HT_SALES_TAX';
+  const isPurchase = e.category === '매입' || e.source_type === 'HT_PURCHASE_TAX' || e.source_type === 'HT_PURCHASE';
+
+  if (isSales) {
+    const inv = e.invoice_amount ?? 0;
+    const inc = e.income_amount  ?? 0;
+    const act = e.actual_amount  ?? 0;
+    if (inc === 0) return '입금 예정';
+    if (inv > 0) {
+      const paid = act > 0 ? act : inc;
+      if (Math.abs(inv - paid) <= 10) return '입금 완료';
+      if (paid > inv) return '초과 입금 검토 필요';
+      return '부분 입금';
+    }
+    return '실제 입금';
+  }
+
+  if (isPurchase) {
+    const inv = e.invoice_amount  ?? 0;
+    const exp = e.expense_amount  ?? 0;
+    const act = e.actual_amount   ?? 0;
+    if (exp === 0 && act === 0) return '지급 예정';
+    if (inv > 0) {
+      const paid = act > 0 ? act : exp;
+      if (Math.abs(inv - paid) <= 10) return '지급 완료';
+      if (paid < inv)  return '부분 지급';
+      return '지급 완료';
+    }
+    return '실제 지급';
+  }
+
+  return null;
+}
+
 function checkLabel(company_code: string, category: string): string {
   if (category === '매출') return '매출수금';
   if (category === '가수금') return '가수금';
@@ -183,7 +224,7 @@ export function buildMonthlyPivot(
         category:        '가수금',
         displayCategory: '가수금',
         vendorName:      '대표이사 가수금',
-        amountStatus:    e.amount_status ?? '실제 입금',
+        amountStatus:    deriveAmountStatus(e) ?? '실제 입금',
         groupId:         null,
         groupName:       null,
         groupOrder:      0,
@@ -200,7 +241,7 @@ export function buildMonthlyPivot(
         category:        e.category,
         displayCategory: displayCat,
         vendorName:      resolvedName,
-        amountStatus:    e.amount_status ?? null,
+        amountStatus:    deriveAmountStatus(e),
         groupId:         e.group_id,
         groupName:       e.group_name,
         groupOrder:      e.group_order ?? 0,

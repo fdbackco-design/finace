@@ -1304,3 +1304,270 @@ tbody tr:hover td {
   padding: 6px 12px;
   background: #f8fafc;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   자금수지현황표 V2 — 금액 상태 뱃지
+══════════════════════════════════════════════════════════════ */
+
+.amt-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
+
+.status-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.status-done    { background: #d1fae5; color: #065f46; }
+.status-partial { background: #dbeafe; color: #1e40af; }
+.status-pending { background: #fef3c7; color: #92400e; }
+.status-warning { background: #ffe4e6; color: #9f1239; }
+.status-error   { background: #fee2e2; color: #991b1b; }
+
+.amt-remaining {
+  font-size: 10px;
+  color: #dc2626;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   구분 드롭다운
+══════════════════════════════════════════════════════════════ */
+
+.cat-display-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-size: 11px;
+  color: #475569;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: inherit;
+}
+.cat-display-btn:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #1e293b;
+}
+.cat-caret {
+  font-size: 9px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.cat-dropdown-menu {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+  overflow-y: auto;
+  max-height: 280px;
+  min-width: 160px;
+}
+.cat-dropdown-item {
+  padding: 7px 12px;
+  font-size: 12px;
+  color: #374151;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cat-dropdown-item:hover { background: #f1f5f9; }
+.cat-dropdown-item-active {
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+.cat-dropdown-divider {
+  height: 1px;
+  background: #f1f5f9;
+  margin: 2px 0;
+}
+.cat-dropdown-add {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+}
+.cat-add-input {
+  flex: 1;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 4px 7px;
+  font-size: 11px;
+  outline: none;
+  min-width: 0;
+  font-family: inherit;
+}
+.cat-add-input:focus { border-color: #3b82f6; }
+.cat-dropdown-add-btn { color: #3b82f6; font-weight: 600; }
+.cat-dropdown-add-btn:hover { background: #eff6ff; }
+
+.btn-tiny {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  border: none;
+  background: #3b82f6;
+  color: #fff;
+  font-family: inherit;
+}
+.btn-tiny:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-tiny-ghost {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  background: transparent;
+  color: #64748b;
+  font-family: inherit;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   모달
+══════════════════════════════════════════════════════════════ */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 28px 32px;
+  width: 400px;
+  max-width: 92vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #1e293b;
+}
+.modal-sub {
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 16px;
+}
+.modal-input {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-size: 14px;
+  outline: none;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.modal-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+}
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.modal-confirm-text {
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: #1e293b;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   배치 툴바 / 체크박스 / 선택 행 강조
+══════════════════════════════════════════════════════════════ */
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.batch-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0369a1;
+}
+.btn-batch {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #334155;
+  font-family: inherit;
+}
+.btn-batch:hover { background: #f1f5f9; }
+.btn-batch-complete {
+  background: #3b82f6;
+  color: #fff;
+  border-color: #3b82f6;
+}
+.btn-batch-complete:hover { background: #2563eb; }
+.btn-batch-ghost {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  background: transparent;
+  color: #64748b;
+  font-family: inherit;
+}
+.btn-batch-ghost:hover { background: #f8fafc; }
+
+.row-checkbox {
+  cursor: pointer;
+  accent-color: #3b82f6;
+}
+
+.pivot-row-selected td {
+  background: #eff6ff !important;
+}
+.pivot-row-selected .sticky-col-1,
+.pivot-row-selected .sticky-col-2,
+.pivot-row-selected .sticky-col-3,
+.pivot-row-selected .sticky-col-4 {
+  background: #eff6ff !important;
+}
+
+.vendor-editable { cursor: pointer; }
+.vendor-editable:hover {
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-underline-offset: 2px;
+}

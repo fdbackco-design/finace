@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, Fragment, useCallback, useTransition, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { CashflowMonthlyRow } from '@/src/lib/cashflow/monthlyPivot';
 
 // ── 카드 상세용 타입 ──────────────────────────────────────────────────────────
@@ -253,17 +254,16 @@ function CategoryDropdown({
         <span className="cat-caret">▾</span>
       </button>
 
-      {/* fixed 포지션으로 테이블 밖에 렌더 */}
-      {open && pos && (
+      {/* createPortal로 document.body에 직접 렌더 — 테이블 stacking context 완전 탈출 */}
+      {open && pos && typeof document !== 'undefined' && createPortal(
         <>
-          {/* 바깥 클릭 닫기용 투명 오버레이 */}
           <div
-            style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+            style={{ position: 'fixed', inset: 0, zIndex: 9999 }}
             onMouseDown={() => setOpen(false)}
           />
           <div
             className="cat-dropdown-menu"
-            style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: pos.width, zIndex: 100 }}
+            style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: pos.width, zIndex: 10000 }}
             onMouseDown={e => e.preventDefault()}
           >
             {items.map(item => (
@@ -295,7 +295,8 @@ function CategoryDropdown({
               </div>
             )}
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </>
   );
