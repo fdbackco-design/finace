@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Fragment, useCallback, useTransition } from 'react';
+import { useState, Fragment, useCallback, useTransition, useRef, useEffect } from 'react';
 import type { CashflowMonthlyRow } from '@/src/lib/cashflow/monthlyPivot';
 
 // ── 카드 상세용 타입 ──────────────────────────────────────────────────────────
@@ -176,6 +176,9 @@ function CompleteConfirmModal({
 }
 
 // ── 구분 드롭다운 ─────────────────────────────────────────────────────────────
+// position: fixed + getBoundingClientRect() 로 테이블 셀 밖으로 오버플로우
+
+type DropdownPos = { top: number; left: number; width: number };
 
 function CategoryDropdown({
   entryIds,
@@ -189,9 +192,34 @@ function CategoryDropdown({
   onSave:   (val: string) => void;
 }) {
   const [open,     setOpen]     = useState(false);
+  const [pos,      setPos]      = useState<DropdownPos | null>(null);
   const [addMode,  setAddMode]  = useState(false);
   const [newItem,  setNewItem]  = useState('');
   const [isPending, start]      = useTransition();
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  // 스크롤·리사이즈 시 닫기
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [open]);
+
+  function openDropdown() {
+    if (!btnRef.current) return;
+    const rect = btnRef.current.getBoundingClientRect();
+    setPos({
+      top:   rect.bottom + 2,
+      left:  rect.left,
+      width: Math.max(rect.width, 160),
+    });
+    setOpen(true);
+  }
 
   const handleSelect = (val: string) => {
     setOpen(false);
@@ -214,48 +242,62 @@ function CategoryDropdown({
   };
 
   return (
-    <div className="cat-dropdown-wrap" onBlur={() => setOpen(false)} tabIndex={-1}>
+    <>
       <button
+        ref={btnRef}
         className="cat-display-btn"
-        onClick={() => setOpen(o => !o)}
+        onClick={openDropdown}
         title="구분 변경"
       >
         {current || <span style={{ color: '#94a3b8' }}>미분류</span>}
         <span className="cat-caret">▾</span>
       </button>
-      {open && (
-        <div className="cat-dropdown-menu" onMouseDown={e => e.preventDefault()}>
-          {items.map(item => (
-            <div
-              key={item}
-              className={`cat-dropdown-item${item === current ? ' cat-dropdown-item-active' : ''}`}
-              onClick={() => handleSelect(item)}
-            >
-              {item}
-            </div>
-          ))}
-          <div className="cat-dropdown-divider" />
-          {addMode ? (
-            <div className="cat-dropdown-add">
-              <input
-                className="cat-add-input"
-                value={newItem}
-                onChange={e => setNewItem(e.target.value)}
-                placeholder="새 항목 입력"
-                autoFocus
-                onKeyDown={e => { if (e.key === 'Enter') handleAddItem(); if (e.key === 'Escape') setAddMode(false); }}
-              />
-              <button className="btn-tiny" onClick={handleAddItem} disabled={isPending}>추가</button>
-              <button className="btn-tiny-ghost" onClick={() => setAddMode(false)}>취소</button>
-            </div>
-          ) : (
-            <div className="cat-dropdown-item cat-dropdown-add-btn" onClick={() => setAddMode(true)}>
-              + 항목 추가
-            </div>
-          )}
-        </div>
+
+      {/* fixed 포지션으로 테이블 밖에 렌더 */}
+      {open && pos && (
+        <>
+          {/* 바깥 클릭 닫기용 투명 오버레이 */}
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+            onMouseDown={() => setOpen(false)}
+          />
+          <div
+            className="cat-dropdown-menu"
+            style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: pos.width, zIndex: 100 }}
+            onMouseDown={e => e.preventDefault()}
+          >
+            {items.map(item => (
+              <div
+                key={item}
+                className={`cat-dropdown-item${item === current ? ' cat-dropdown-item-active' : ''}`}
+                onClick={() => handleSelect(item)}
+              >
+                {item}
+              </div>
+            ))}
+            <div className="cat-dropdown-divider" />
+            {addMode ? (
+              <div className="cat-dropdown-add">
+                <input
+                  className="cat-add-input"
+                  value={newItem}
+                  onChange={e => setNewItem(e.target.value)}
+                  placeholder="새 항목 입력"
+                  autoFocus
+                  onKeyDown={e => { if (e.key === 'Enter') handleAddItem(); if (e.key === 'Escape') setAddMode(false); }}
+                />
+                <button className="btn-tiny" onClick={handleAddItem} disabled={isPending}>추가</button>
+                <button className="btn-tiny-ghost" onClick={() => setAddMode(false)}>취소</button>
+              </div>
+            ) : (
+              <div className="cat-dropdown-item cat-dropdown-add-btn" onClick={() => setAddMode(true)}>
+                + 항목 추가
+              </div>
+            )}
+          </div>
+        </>
       )}
-    </div>
+    </>
   );
 }
 
@@ -727,13 +769,12 @@ export default function PivotTable({
         .amt-remaining { font-size: 10px; color: #ef4444; }
         .vendor-editable { cursor: pointer; }
         .vendor-editable:hover { text-decoration: underline; color: #7c3aed; }
-        /* 구분 드롭다운 */
-        .cat-dropdown-wrap { position: relative; }
-        .cat-display-btn { background: none; border: none; padding: 2px 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 2px; border-radius: 4px; width: 100%; text-align: left; }
+        /* 구분 드롭다운 — position:fixed 로 테이블 셀 밖 렌더 */
+        .cat-display-btn { background: none; border: none; padding: 2px 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 3px; border-radius: 4px; width: 100%; text-align: left; white-space: nowrap; overflow: hidden; }
         .cat-display-btn:hover { background: #f1f5f9; }
-        .cat-caret { font-size: 10px; color: #94a3b8; }
-        .cat-dropdown-menu { position: absolute; top: 100%; left: 0; z-index: 100; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.12); min-width: 160px; max-height: 260px; overflow-y: auto; }
-        .cat-dropdown-item { padding: 6px 12px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+        .cat-caret { font-size: 10px; color: #94a3b8; flex-shrink: 0; }
+        .cat-dropdown-menu { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.15); min-width: 160px; max-height: 280px; overflow-y: auto; }
+        .cat-dropdown-item { padding: 7px 13px; font-size: 13px; cursor: pointer; white-space: nowrap; }
         .cat-dropdown-item:hover { background: #f8fafc; }
         .cat-dropdown-item-active { font-weight: 600; color: #7c3aed; background: #f5f3ff; }
         .cat-dropdown-divider { height: 1px; background: #e2e8f0; margin: 2px 0; }
