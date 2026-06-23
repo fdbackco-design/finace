@@ -6,9 +6,10 @@ import { applyVendorMapping, type VendorAlias } from '@/src/lib/vendors/mapping'
 
 // ── 거래처 등록 ────────────────────────────────────────────────────────────────
 export async function createVendor(formData: FormData): Promise<{ error?: string }> {
-  const vendorName    = (formData.get('vendor_name') as string ?? '').trim();
-  const sourceName    = (formData.get('source_name') as string ?? '').trim() || null;
-  const businessNo    = (formData.get('business_number') as string ?? '').trim() || null;
+  const vendorName        = (formData.get('vendor_name') as string ?? '').trim();
+  const representativeName = (formData.get('representative_name') as string ?? '').trim() || null;
+  const sourceName        = (formData.get('source_name') as string ?? '').trim() || null;
+  const businessNo        = (formData.get('business_number') as string ?? '').trim() || null;
 
   if (!vendorName) return { error: '거래처명은 필수입니다.' };
 
@@ -17,7 +18,7 @@ export async function createVendor(formData: FormData): Promise<{ error?: string
 
   const { data: vendor, error: ve } = await client
     .from('vendors')
-    .insert({ vendor_name: vendorName })
+    .insert({ vendor_name: vendorName, representative_name: representativeName })
     .select('id')
     .single();
 
@@ -35,12 +36,13 @@ export async function createVendor(formData: FormData): Promise<{ error?: string
   return {};
 }
 
-// ── 거래처명 수정 ──────────────────────────────────────────────────────────────
+// ── 거래처 정보 수정 ──────────────────────────────────────────────────────────
 export async function updateVendorName(
   vendorId: string,
   formData: FormData,
 ): Promise<{ error?: string }> {
-  const vendorName = (formData.get('vendor_name') as string ?? '').trim();
+  const vendorName         = (formData.get('vendor_name') as string ?? '').trim();
+  const representativeName = (formData.get('representative_name') as string ?? '').trim() || null;
   if (!vendorName) return { error: '거래처명은 필수입니다.' };
 
   const client = createServerClient();
@@ -48,7 +50,7 @@ export async function updateVendorName(
 
   const { error } = await client
     .from('vendors')
-    .update({ vendor_name: vendorName })
+    .update({ vendor_name: vendorName, representative_name: representativeName })
     .eq('id', vendorId);
 
   if (error) return { error: error.message };
@@ -113,14 +115,15 @@ export async function remapAllEntries(): Promise<{ updated: number; error?: stri
   // 1. 모든 aliases + vendor_name 로드
   const { data: rawAliases } = await client
     .from('vendor_aliases')
-    .select('id, vendor_id, source_name, business_number, vendors(vendor_name)');
+    .select('id, vendor_id, source_name, business_number, vendors(vendor_name, representative_name)');
 
   const aliases: VendorAlias[] = (rawAliases ?? []).map((a: any) => ({
-    id:              a.id,
-    vendor_id:       a.vendor_id,
-    vendor_name:     a.vendors?.vendor_name ?? '',
-    source_name:     a.source_name,
-    business_number: a.business_number,
+    id:                  a.id,
+    vendor_id:           a.vendor_id,
+    vendor_name:         a.vendors?.vendor_name ?? '',
+    representative_name: a.vendors?.representative_name ?? null,
+    source_name:         a.source_name,
+    business_number:     a.business_number,
   })).filter(a => a.vendor_name);
 
   if (aliases.length === 0) return { updated: 0 };

@@ -16,10 +16,11 @@ export type VendorAlias = {
 };
 
 export type Vendor = {
-  id:          string;
-  vendor_name: string;
-  created_at:  string;
-  vendor_aliases: VendorAlias[];
+  id:                  string;
+  vendor_name:         string;
+  representative_name: string | null;
+  created_at:          string;
+  vendor_aliases:      VendorAlias[];
 };
 
 // ── 하위 컴포넌트 ──────────────────────────────────────────────────────────────
@@ -120,6 +121,7 @@ function VendorRow({
 }) {
   const [editing,       setEditing]      = useState(false);
   const [editName,      setEditName]     = useState(vendor.vendor_name);
+  const [editRepName,   setEditRepName]  = useState(vendor.representative_name ?? '');
   const [showAliases,   setShowAliases]  = useState(false);
   const [showAddAlias,  setShowAddAlias] = useState(false);
   const [err,           setErr]          = useState('');
@@ -131,6 +133,7 @@ function VendorRow({
     setErr('');
     const fd = new FormData();
     fd.set('vendor_name', editName);
+    fd.set('representative_name', editRepName);
     startTransition(async () => {
       const res = await updateVendorName(vendor.id, fd);
       if (res.error) { setErr(res.error); return; }
@@ -162,22 +165,34 @@ function VendorRow({
       {/* 거래처명 영역 */}
       <div className="vendor-row-main">
         {editing ? (
-          <form onSubmit={handleUpdateName} style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1 }}>
+          <form onSubmit={handleUpdateName} style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1, flexWrap: 'wrap' }}>
             <input
               autoFocus
               type="text"
               value={editName}
               onChange={e => setEditName(e.target.value)}
               className="form-input"
-              style={{ flex: 1 }}
+              placeholder="거래처명"
+              style={{ flex: 1, minWidth: 120 }}
+            />
+            <input
+              type="text"
+              value={editRepName}
+              onChange={e => setEditRepName(e.target.value)}
+              className="form-input"
+              placeholder="대표자명"
+              style={{ width: 120 }}
             />
             {err && <span className="form-error">{err}</span>}
             <button type="submit" className="btn-sm btn-primary" disabled={isPending}>저장</button>
-            <button type="button" className="btn-sm btn-ghost" onClick={() => { setEditing(false); setEditName(vendor.vendor_name); }}>취소</button>
+            <button type="button" className="btn-sm btn-ghost" onClick={() => { setEditing(false); setEditName(vendor.vendor_name); setEditRepName(vendor.representative_name ?? ''); }}>취소</button>
           </form>
         ) : (
           <>
             <span className="vendor-name">{vendor.vendor_name}</span>
+            {vendor.representative_name && (
+              <span className="vendor-rep-name">대표 {vendor.representative_name}</span>
+            )}
             <div className="vendor-actions">
               <button className="btn-sm btn-ghost" onClick={() => setEditing(true)}>수정</button>
               <button className="btn-sm btn-danger" onClick={handleDelete} disabled={isPending}>삭제</button>
@@ -246,6 +261,7 @@ export default function VendorClient({ initialVendors }: { initialVendors: Vendo
   const filtered = lower
     ? initialVendors.filter(v =>
         v.vendor_name.toLowerCase().includes(lower) ||
+        (v.representative_name?.toLowerCase().includes(lower) ?? false) ||
         v.vendor_aliases.some(
           a => a.source_name?.toLowerCase().includes(lower) ||
                a.business_number?.includes(lower)
@@ -311,6 +327,10 @@ export default function VendorClient({ initialVendors }: { initialVendors: Vendo
             <input name="vendor_name" type="text" className="form-input" required placeholder="예: 써브웨이" />
           </div>
           <div className="form-row">
+            <label className="form-label">대표자명</label>
+            <input name="representative_name" type="text" className="form-input" placeholder="예: 홍길동" />
+          </div>
+          <div className="form-row">
             <label className="form-label">사업자번호</label>
             <input name="business_number" type="text" className="form-input" placeholder="예: 296-20-01613" />
           </div>
@@ -332,7 +352,7 @@ export default function VendorClient({ initialVendors }: { initialVendors: Vendo
       <div className="vendor-search">
         <input
           type="text"
-          placeholder="거래처명, 사업자번호, 원본명 검색..."
+          placeholder="거래처명, 대표자명, 사업자번호, 원본명 검색..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="form-input"

@@ -5,9 +5,10 @@ import { fetchTable } from '@/src/lib/supabase/server';
 import VendorClient, { type Vendor } from './VendorClient';
 
 type VendorRow = {
-  id:             string;
-  vendor_name:    string;
-  created_at:     string;
+  id:                  string;
+  vendor_name:         string;
+  representative_name: string | null;
+  created_at:          string;
   vendor_aliases: {
     id:              string;
     vendor_id:       string;
@@ -23,7 +24,7 @@ export default async function VendorsPage() {
     (client) =>
       client
         .from('vendors')
-        .select('id, vendor_name, created_at, vendor_aliases(id, vendor_id, source_name, business_number, created_at)')
+        .select('id, vendor_name, representative_name, created_at, vendor_aliases(id, vendor_id, source_name, business_number, created_at)')
         .order('vendor_name') as any,
   );
 
