@@ -13,11 +13,7 @@ import {
   type CashflowMonthlySummary,
 } from '@/src/lib/cashflow/monthlyPivot';
 import {
-  cardLabelFromEntry,
-  cardLabelSortOrder,
-  type CardLabel,
-} from '@/src/lib/cards/classifyCard';
-import {
+  CARD_SETTLEMENT_CONFIG,
   getCardPeriod,
   getWidestCardDateRange,
 } from '@/src/lib/cards/settlement';
@@ -202,17 +198,10 @@ type CardMatchRow = {
   hometax_invoice_id:  string | null;
 };
 
-const VALID_CARD_LABELS = new Set<string>([
-  '상생 우리카드', '상생 기업카드', '피드백 우리카드', '피드백 기업카드',
-]);
-
-function cardLabelToKey(label: CardLabel): string {
-  if (label === '피드백 기업카드') return 'feedback:CARD_IBK';
-  if (label === '피드백 우리카드') return 'feedback:CARD_WOORI';
-  if (label === '상생 기업카드')   return 'sangsaeng:CARD_IBK';
-  if (label === '상생 우리카드')   return 'sangsaeng:CARD_WOORI';
-  return '';
-}
+// cardKey 정렬 순서 (CARD_SETTLEMENT_CONFIG 키 순서 기반)
+const CARD_KEY_ORDER = Object.fromEntries(
+  Object.keys(CARD_SETTLEMENT_CONFIG).map((k, i) => [k, i])
+);
 
 function buildCardGroups(
   rows:     CardTxRow[],
@@ -221,7 +210,7 @@ function buildCardGroups(
   year: number,
   month: number,
 ): PivotCardGroup[] {
-  const map = new Map<CardLabel, {
+  const map = new Map<string, {
     cardKey: string;
     label: string;
     period: { settlementDate: string; usedDateFrom: string; usedDateTo: string };
@@ -229,19 +218,16 @@ function buildCardGroups(
   }>();
 
   for (const c of rows) {
-    const label: CardLabel | null =
-      (c.card_label && VALID_CARD_LABELS.has(c.card_label)
-        ? c.card_label as CardLabel
-        : cardLabelFromEntry(c.company_code, c.source_type));
-    if (!label) continue;
+    const cardKey = `${c.company_code}:${c.source_type}`;
+    if (!CARD_SETTLEMENT_CONFIG[cardKey]) continue;
 
-    const cardKey = cardLabelToKey(label);
-    const period  = getCardPeriod(cardKey, year, month);
+    const period = getCardPeriod(cardKey, year, month);
 
     if (c.used_date && (c.used_date < period.usedDateFrom || c.used_date > period.usedDateTo)) continue;
 
-    if (!map.has(label)) {
-      map.set(label, { cardKey, label, period, txs: [] });
+    if (!map.has(cardKey)) {
+      const label = CARD_VENDOR_LABEL[cardKey] ?? cardKey;
+      map.set(cardKey, { cardKey, label, period, txs: [] });
     }
 
     const match       = matchMap.get(c.id);
@@ -250,7 +236,7 @@ function buildCardGroups(
       ? resolveVendor(match.vendor_name ?? '', match.hometax_invoice_id)
       : (c.merchant_name ?? '');
 
-    map.get(label)!.txs.push({
+    map.get(cardKey)!.txs.push({
       id:          c.id,
       usedDate:    c.used_date ?? '',
       vendorName,
@@ -260,7 +246,7 @@ function buildCardGroups(
   }
 
   return Array.from(map.values())
-    .sort((a, b) => cardLabelSortOrder(a.label as CardLabel) - cardLabelSortOrder(b.label as CardLabel))
+    .sort((a, b) => (CARD_KEY_ORDER[a.cardKey] ?? 99) - (CARD_KEY_ORDER[b.cardKey] ?? 99))
     .map(({ cardKey, label, period, txs }) => ({
       cardKey,
       label,

@@ -13,6 +13,7 @@ import { BankTransaction, CardTransaction, HometaxInvoice, CompanyCode } from '.
 import { FixedCostEntry } from '../../matching/matcherTypes';
 import { MatchingEngine }  from '../../matching/engine';
 import { createServerClient } from '../supabase/server';
+import { calcCardPaymentDueDate } from '../cards/settlement';
 
 // ── DB row → 엔진 타입 변환 ─────────────────────────────────────────────────
 
@@ -37,16 +38,21 @@ function toBank(r: any): BankTransaction {
 }
 
 function toCard(r: any): CardTransaction {
+  const usedDate = r.used_date as string | null;
+  const cardKey  = r.company_code && r.source_type ? `${r.company_code}:${r.source_type}` : undefined;
+  // payment_due_date가 DB에 없으면 사용일로부터 계산해 cashflow_entry가 올바른 월에 생성되도록 함
+  const paymentDueDate = r.payment_due_date
+    ?? (usedDate ? calcCardPaymentDueDate(usedDate, cardKey) : '');
   return {
     company:           r.company_code           as CompanyCode,
     sourceType:        r.source_type,
-    usedAt:            r.used_at ?? (r.used_date ? `${r.used_date}T00:00:00` : ''),
+    usedAt:            r.used_at ?? (usedDate ? `${usedDate}T00:00:00` : ''),
     merchantName:      r.merchant_name          ?? '',
     amount:            Number(r.amount          ?? 0),
     approvalNumber:    r.approval_number        ?? '',
     cardNo:            r.card_no                ?? '',
     businessNo:        r.business_no            ?? '',
-    paymentDueDate:    r.payment_due_date        ?? '',
+    paymentDueDate,
     isCancelled:       Boolean(r.is_cancelled),
     cancelledAmount:   Number(r.cancelled_amount ?? 0),
     domesticOrForeign: r.domestic_or_foreign    ?? '',

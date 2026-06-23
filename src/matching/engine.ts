@@ -37,6 +37,9 @@ function scoreCandidate(
                   : dateDiff <= 30 ? 0.2
                   : 0.1;
   const vendorScore = Math.max(...candidateVendorFields.map(f => similarity(htVendor, f)));
+  // 7일 초과 매칭은 거래처 유사도가 충분해야만 후보로 인정
+  // → 급여 등 고정비 출금이 우연히 금액 일치한 먼 계산서에 소비되는 것을 방지
+  if (dateDiff > 7 && vendorScore < 0.3) return { score: 0, reason: '' };
   const score = 0.5 + dateScore + vendorScore * 0.1; // amount already matched → base 0.5
 
   const reason = [
