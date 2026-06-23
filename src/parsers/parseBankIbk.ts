@@ -49,12 +49,12 @@ export function parseBankIbk(
       const txType         = String(row[9] ?? '');
       const counterName    = String(row[12] ?? '');
 
-      // 가수금: 피드백 전용, 입금이고 거래내용에 특정인 이름 포함
+      // 가수금: 피드백 전용, 입금이고 거래내용에 '송해민' 포함
       let categoryHint = '';
       if (
         company === 'feedback' &&
         depositAmount > 0 &&
-        (description.includes('송해민') || description.includes('손성훈'))
+        description.includes('송해민')
       ) {
         categoryHint = '가수금';
       }

@@ -83,7 +83,7 @@ export class MatchingEngine {
       if (b.categoryHint !== '가수금') continue;
       this.usedBankIds.add(b._id);
 
-      const person = b.description.includes('송해민') ? '송해민' : '손성훈';
+      const person = '송해민';
       this.cashflow.push({
         id:              makeId('cf'),
         company:         b.company,
@@ -426,6 +426,7 @@ export class MatchingEngine {
           bankTransactionId: b._id,
           cardTransactionId: '',
           fixedCostId:     '',
+          showInCashflow:  true,
         });
       } else if (b.withdrawAmount > 0) {
         this.cashflow.push({
@@ -445,6 +446,7 @@ export class MatchingEngine {
           bankTransactionId: b._id,
           cardTransactionId: '',
           fixedCostId:     '',
+          showInCashflow:  true,
         });
       }
     }

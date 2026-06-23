@@ -83,12 +83,11 @@ const COMPANY_LABEL: Record<string, string> = {
 
 // 정렬 순서: 작을수록 위쪽
 const CHECK_ORDER: Record<string, number> = {
-  '현금입금': 0,
-  '가수금':   1,
-  '매출수금': 2,
-  '피드백':   3,
-  '상생':     4,
-  '슛문':     5,
+  '가수금':   0,
+  '매출수금': 1,
+  '피드백':   2,
+  '상생':     3,
+  '슛문':     4,
 };
 
 // ── 내부 헬퍼 ────────────────────────────────────────────────────────────────
@@ -137,7 +136,6 @@ function deriveAmountStatus(e: DbEntry): string | null {
 function checkLabel(company_code: string, category: string): string {
   if (category === '매출') return '매출수금';
   if (category === '가수금') return '가수금';
-  if (category === '기타수입') return '현금입금';
   return COMPANY_LABEL[company_code] ?? company_code;
 }
 
@@ -312,8 +310,8 @@ export function buildCashflowMonthlySummary(
     // 매출수금: category='매출' OR source_type='HT_SALES_TAX'
     if (e.income_amount > 0 && (e.category === '매출' || e.source_type === 'HT_SALES_TAX')) {
       add(daily.salesCollection, day, e.income_amount);
-    // 현금입금: income > 0 AND NOT 가수금/매출
-    } else if (e.income_amount > 0 && e.category !== '가수금' && e.category !== '매출') {
+    // 현금입금: income > 0 AND NOT 매출 (가수금 포함)
+    } else if (e.income_amount > 0 && e.category !== '매출') {
       add(daily.cashIncome, day, e.income_amount);
     }
 

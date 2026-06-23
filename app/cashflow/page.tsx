@@ -293,7 +293,7 @@ export default async function CashflowPage({ searchParams }: Props) {
         .gte('entry_date', startDate)
         .lte('entry_date', endDate)
         .eq('is_completed', false)
-        .eq('show_in_cashflow', true)
+        .neq('show_in_cashflow', false)
         .order('entry_date', { ascending: true }) as any,
   );
 
