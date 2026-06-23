@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import type { CashflowMonthlyRow } from '@/src/lib/cashflow/monthlyPivot';
 
 // ── 카드 상세용 타입 ──────────────────────────────────────────────────────────
@@ -101,35 +101,35 @@ export default function PivotTable({
         </thead>
         <tbody>
           {groups.map(([check, groupRows]) => (
-            <>
-              {/* 그룹 헤더 행 */}
-              <tr key={`gh-${check}`} className="pivot-group-header">
+            // key 있는 Fragment 필수: 없으면 상태 업데이트 시 재조정 깨짐
+            <Fragment key={`grp-${check}`}>
+              <tr className="pivot-group-header">
                 <td colSpan={4 + daysInMonth}>{check}</td>
               </tr>
 
               {groupRows.map((row, ri) => {
-                const totFmt  = fmtAmt(row.total);
-                const isCard  = !!row.cardKey;
-                const isOpen  = isCard && expanded.has(row.cardKey!);
-                const group   = isCard ? cardGroupMap.get(row.cardKey!) : undefined;
+                const totFmt = fmtAmt(row.total);
+                const isCard = !!row.cardKey;
+                const isOpen = isCard && expanded.has(row.cardKey!);
+                const group  = isCard ? cardGroupMap.get(row.cardKey!) : undefined;
 
                 return (
-                  <>
+                  <Fragment key={`row-${check}-${ri}`}>
                     {/* 메인 행 */}
-                    <tr
-                      key={`${check}-${ri}`}
-                      className={`${row.total > 0 ? 'pivot-row-income' : 'pivot-row-expense'}${isCard ? ' pivot-row-card' : ''}`}
-                    >
-                      {/* 체크 + 카드 토글 버튼 */}
+                    <tr className={`${row.total > 0 ? 'pivot-row-income' : 'pivot-row-expense'}${isCard ? ' pivot-row-card' : ''}`}>
+                      {/* 체크 열: 카드 행은 회사명 + 토글 버튼 함께 표시 */}
                       <td className="sticky-col-1 pivot-check">
                         {isCard ? (
-                          <button
-                            className="pivot-card-toggle"
-                            onClick={() => toggle(row.cardKey!)}
-                            title={isOpen ? '접기' : '펼치기'}
-                          >
-                            {isOpen ? '▾' : '▸'}
-                          </button>
+                          <>
+                            <button
+                              className="pivot-card-toggle"
+                              onClick={() => toggle(row.cardKey!)}
+                              title={isOpen ? '접기' : '펼치기'}
+                            >
+                              {isOpen ? '▾' : '▸'}
+                            </button>
+                            {row.check}
+                          </>
                         ) : (
                           row.check
                         )}
@@ -137,13 +137,13 @@ export default function PivotTable({
                       <td className="sticky-col-2 pivot-cat">{row.category}</td>
                       <td className="sticky-col-3 pivot-vendor">
                         {isCard && group ? (
-                          <span>
+                          <>
                             {group.label}
                             <span className="pivot-card-period">
-                              &nbsp;·&nbsp;결제 {group.period.settlementDate.slice(5)}&nbsp;&nbsp;
-                              사용 {group.period.usedDateFrom.slice(5)} ~ {group.period.usedDateTo.slice(5)}
+                              &nbsp;·&nbsp;결제 {group.period.settlementDate.slice(5)}
+                              &nbsp;&nbsp;사용 {group.period.usedDateFrom.slice(5)} ~ {group.period.usedDateTo.slice(5)}
                             </span>
-                          </span>
+                          </>
                         ) : (
                           row.vendorName
                         )}
@@ -158,9 +158,9 @@ export default function PivotTable({
                     </tr>
 
                     {/* 카드 상세 sub-rows (펼쳤을 때) */}
-                    {isCard && isOpen && group && (
-                      group.transactions.length === 0 ? (
-                        <tr key={`${row.cardKey}-empty`} className="pivot-card-detail-empty">
+                    {isCard && isOpen && (
+                      !group || group.transactions.length === 0 ? (
+                        <tr className="pivot-card-detail-empty">
                           <td colSpan={4 + daysInMonth}>
                             해당 기간 카드 거래 내역이 없습니다.
                           </td>
@@ -186,10 +186,10 @@ export default function PivotTable({
                         ))
                       )
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
-            </>
+            </Fragment>
           ))}
         </tbody>
       </table>
