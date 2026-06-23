@@ -335,6 +335,35 @@ export default function PivotTable({
   const [completeModal, setCompleteModal] = useState(false);
   const [isPending, startTransition]      = useTransition();
 
+  // ── 드래그 스크롤 ────────────────────────────────────────────────────────
+  const wrapRef  = useRef<HTMLDivElement>(null);
+  const dragRef  = useRef<{ active: boolean; startX: number; scrollLeft: number }>({
+    active: false, startX: 0, scrollLeft: 0,
+  });
+
+  const onDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // 인터랙티브 요소 위에서는 드래그 비활성화
+    const tag = (e.target as HTMLElement).tagName;
+    if (['BUTTON', 'INPUT', 'A', 'SELECT', 'TEXTAREA'].includes(tag)) return;
+    if (!wrapRef.current) return;
+    dragRef.current = { active: true, startX: e.pageX, scrollLeft: wrapRef.current.scrollLeft };
+    wrapRef.current.style.cursor = 'grabbing';
+    wrapRef.current.style.userSelect = 'none';
+  }, []);
+
+  const onDragMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!dragRef.current.active || !wrapRef.current) return;
+    const dx = e.pageX - dragRef.current.startX;
+    wrapRef.current.scrollLeft = dragRef.current.scrollLeft - dx;
+  }, []);
+
+  const onDragEnd = useCallback(() => {
+    dragRef.current.active = false;
+    if (!wrapRef.current) return;
+    wrapRef.current.style.cursor = '';
+    wrapRef.current.style.userSelect = '';
+  }, []);
+
   const dayNums  = Array.from({ length: daysInMonth }, (_, i) => i + 1);
   const weekdays = dayNums.map(d => new Date(year, month - 1, d).getDay());
 
@@ -641,7 +670,15 @@ export default function PivotTable({
         </div>
       )}
 
-      <div className="pivot-wrap">
+      <div
+        ref={wrapRef}
+        className="pivot-wrap"
+        onMouseDown={onDragStart}
+        onMouseMove={onDragMove}
+        onMouseUp={onDragEnd}
+        onMouseLeave={onDragEnd}
+        style={{ cursor: 'grab' }}
+      >
         <table className="pivot-table">
           <thead>
             <tr>
