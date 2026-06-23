@@ -8,26 +8,54 @@ export type DbEntry = {
   entry_date: string;          // YYYY-MM-DD
   vendor_name: string;
   vendor_name_mapped: string | null;
+  vendor_name_override: string | null;  // 사용자 수정 거래처명
   hometax_invoice_id?: string | null;
   category: string;
   sub_category: string | null;
+  display_category: string | null;     // 사용자 구분 (드롭다운)
   income_amount: number;
   expense_amount: number;
   match_status: string;
   source_type: string;
   payment_source_type: string | null;
+  // V2 금액 상태
+  amount_status: string | null;
+  invoice_amount: number;
+  actual_amount: number;
+  accumulated_amount: number;
+  remaining_amount: number;
+  actual_date: string | null;
+  show_in_cashflow: boolean;
+  // 그룹
+  group_id: string | null;
+  group_name: string | null;
+  group_order: number;
+  // 매칭 완료
+  is_completed: boolean;
+  completed_at: string | null;
 };
 
 export type VendorNameResolver = (entry: DbEntry) => string;
 
 export type CashflowMonthlyRow = {
   check: string;              // 그룹 라벨 (회사명 or 가수금 etc.)
-  category: string;           // 구분
-  vendorName: string;         // 거래처
+  category: string;           // 시스템 구분 (매입/매출 등)
+  displayCategory: string;    // 사용자 구분 (드롭다운)
+  vendorName: string;         // 거래처 (override 적용)
   total: number;              // 순합계: 양수=수입, 음수=지출
   days: Record<number, number>; // day → 순금액
-  rawEntryIds: string[];
+  rawEntryIds: string[];      // 기반 cashflow_entry UUID 목록
   cardKey?: string;           // 카드 행 전용 ('feedback:CARD_IBK' 등)
+  // V2 필드
+  amountStatus: string | null;     // 금액 상태 레이블
+  invoiceAmount: number;           // 세금계산서 합계
+  actualAmount: number;            // 실제 처리액 합계
+  remainingAmount: number;         // 잔액 합계
+  groupId: string | null;          // 그룹 ID
+  groupName: string | null;        // 그룹명
+  groupOrder: number;              // 그룹 내 순서
+  isCompleted: boolean;            // 매칭 완료 여부 (행 내 모든 항목 완료)
+  entryCount: number;              // 포함된 원시 항목 수
 };
 
 // ── 매핑 상수 ─────────────────────────────────────────────────────────────────
@@ -86,69 +114,113 @@ export function buildMonthlyPivot(
 ): CashflowMonthlyRow[] {
   const map = new Map<string, CashflowMonthlyRow>();
 
-  function upsert(key: string, init: Omit<CashflowMonthlyRow, 'total' | 'days' | 'rawEntryIds'>): CashflowMonthlyRow {
+  function upsert(
+    key: string,
+    init: Omit<CashflowMonthlyRow, 'total' | 'days' | 'rawEntryIds' | 'invoiceAmount' | 'actualAmount' | 'remainingAmount' | 'entryCount' | 'isCompleted'>,
+  ): CashflowMonthlyRow {
     if (!map.has(key)) {
-      map.set(key, { ...init, total: 0, days: {}, rawEntryIds: [] });
+      map.set(key, {
+        ...init,
+        total: 0, days: {}, rawEntryIds: [],
+        invoiceAmount: 0, actualAmount: 0, remainingAmount: 0,
+        entryCount: 0, isCompleted: false,
+      });
     }
     return map.get(key)!;
   }
 
-  function addToRow(row: CashflowMonthlyRow, day: number, net: number, entryId: string) {
-    const d = Math.min(day, daysInMonth); // 월의 마지막 날을 초과하면 마지막 날로
+  function addToRow(row: CashflowMonthlyRow, day: number, net: number, e: DbEntry) {
+    const d = Math.min(day, daysInMonth);
     row.days[d] = (row.days[d] ?? 0) + net;
     row.total += net;
-    row.rawEntryIds.push(entryId);
+    row.rawEntryIds.push(e.id);
+    row.entryCount++;
+    row.invoiceAmount   += (e.invoice_amount   ?? 0);
+    row.actualAmount    += (e.actual_amount     ?? 0);
+    row.remainingAmount += (e.remaining_amount  ?? 0);
+    // 행 내 모든 항목이 완료되어야 is_completed = true
+    if (!e.is_completed) row.isCompleted = false;
   }
 
   for (const e of entries) {
+    // show_in_cashflow가 false인 항목은 피벗에 포함하지 않음
+    if (e.show_in_cashflow === false) continue;
+
     const day = dayFromDate(e.entry_date);
-    // net: 양수 = 수입(입금), 음수 = 지출(출금)
     const net = e.income_amount - e.expense_amount;
 
-    // ── 카드지출: 개별 가맹점 대신 결제예정일 기준 집계 ──────────────────────
+    // 거래처명: override > ht > fc alias > mapped > original
+    const resolvedName = e.vendor_name_override
+      ?? (resolveVendorName ? resolveVendorName(e) : null)
+      ?? e.vendor_name_mapped
+      ?? e.vendor_name;
+
+    const displayCat = e.display_category ?? e.category;
+
+    // ── 카드지출 ─────────────────────────────────────────────────────────
     if (e.category === '카드지출') {
       const ck = `${e.company_code}:${e.source_type}`;
       const payDay = CARD_PAYMENT_DAY[ck] ?? day;
       const label  = CARD_VENDOR_LABEL[ck] ?? `신용카드 대금결제(${e.source_type})`;
 
       const row = upsert(`CARD::${ck}`, {
-        check:      COMPANY_LABEL[e.company_code] ?? e.company_code,
-        category:   '미지급금',
-        vendorName: label,
-        cardKey:    ck,
+        check:           COMPANY_LABEL[e.company_code] ?? e.company_code,
+        category:        '카드지출',
+        displayCategory: '미지급금',
+        vendorName:      label,
+        cardKey:         ck,
+        amountStatus:    '실제 지급',
+        groupId:         e.group_id,
+        groupName:       e.group_name,
+        groupOrder:      e.group_order ?? 0,
       });
-      addToRow(row, payDay, net, e.id); // net < 0 (expense)
+      addToRow(row, payDay, net, e);
 
-    // ── 가수금: 개인 이름 무시, 대표이사 가수금 한 줄로 집계 ─────────────────
+    // ── 가수금 ───────────────────────────────────────────────────────────
     } else if (e.category === '가수금') {
       const row = upsert('KASUGEUM', {
-        check:      '가수금',
-        category:   '-',
-        vendorName: '대표이사 가수금',
+        check:           '가수금',
+        category:        '가수금',
+        displayCategory: '가수금',
+        vendorName:      '대표이사 가수금',
+        amountStatus:    e.amount_status ?? '실제 입금',
+        groupId:         null,
+        groupName:       null,
+        groupOrder:      0,
       });
-      addToRow(row, day, net, e.id);
+      addToRow(row, day, net, e);
 
-    // ── 일반 항목 ──────────────────────────────────────────────────────────
+    // ── 일반 항목 ────────────────────────────────────────────────────────
     } else {
       const check = checkLabel(e.company_code, e.category);
-      const displayName = resolveVendorName
-        ? resolveVendorName(e)
-        : (e.vendor_name_mapped ?? e.vendor_name);
-      // 매핑된 거래처명 기준으로 그룹핑 (여러 지점/원본명 → 한 줄)
-      const key = `${check}::${e.company_code}::${e.category}::${displayName}`;
+      const key = `${check}::${e.company_code}::${e.category}::${resolvedName}`;
 
       const row = upsert(key, {
         check,
-        category:   e.category,
-        vendorName: displayName,
+        category:        e.category,
+        displayCategory: displayCat,
+        vendorName:      resolvedName,
+        amountStatus:    e.amount_status ?? null,
+        groupId:         e.group_id,
+        groupName:       e.group_name,
+        groupOrder:      e.group_order ?? 0,
       });
-      addToRow(row, day, net, e.id);
+      // 첫 번째 항목이 그룹 정보를 결정 (이후 항목도 같은 그룹이어야 함)
+      if (!row.groupId && e.group_id) {
+        row.groupId   = e.group_id;
+        row.groupName = e.group_name;
+      }
+      addToRow(row, day, net, e);
     }
   }
 
-  // ── 정렬 ────────────────────────────────────────────────────────────────
+  // ── 정렬: 그룹 order → check order → category → vendorName ──────────────
   const rows = Array.from(map.values());
   rows.sort((a, b) => {
+    // 그룹 내 항목은 group_order 기준 (같은 그룹끼리 묶음)
+    if (a.groupId && b.groupId && a.groupId === b.groupId) {
+      return a.groupOrder - b.groupOrder;
+    }
     const aOrd = CHECK_ORDER[a.check] ?? 99;
     const bOrd = CHECK_ORDER[b.check] ?? 99;
     if (aOrd !== bOrd) return aOrd - bOrd;

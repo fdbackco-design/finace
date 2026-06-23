@@ -231,7 +231,16 @@ export class MatchingEngine {
 
       if (candidates.length === 0) {
         // Unmatched HT: create cashflow entry with invoice date
-        this.cashflow.push(this.htEntry(ht, 'UNMATCHED', 'hometax_unmatched', '', '', ht.issuedDate));
+        // entry_date: 작성일자(A열) 우선, 없으면 발급일자(C열)
+      const unmatchedDate = ht.writtenDate || ht.issuedDate;
+      const unmatchedEntry = this.htEntry(ht, 'UNMATCHED', 'hometax_unmatched', '', '', unmatchedDate);
+      unmatchedEntry.amountStatus    = '지급 예정';
+      unmatchedEntry.invoiceAmount   = ht.totalAmount;
+      unmatchedEntry.remainingAmount = ht.totalAmount;
+      unmatchedEntry.incomeAmount    = 0;
+      unmatchedEntry.expenseAmount   = 0; // 아직 지급 안됨 → 예정만 표시
+      unmatchedEntry.showInCashflow  = true;
+      this.cashflow.push(unmatchedEntry);
         continue;
       }
 
@@ -266,8 +275,12 @@ export class MatchingEngine {
       });
 
       const vname = ht.vendorName;
-      // 자금수지 entry_date = 홈택스 C열 발급일자 (은행·카드 매칭 공통)
-      const entryDate = ht.issuedDate;
+      // entry_date: 작성일자(A열) 우선, 없으면 발급일자(C열)
+      const entryDate = ht.writtenDate || ht.issuedDate;
+      const isFullyPaid = Math.abs(ht.totalAmount - (top.bankId
+        ? (this.banks.find(b => b._id === top.bankId)?.withdrawAmount ?? 0)
+        : (this.cards.find(c => c._id === top.cardId)?.amount ?? 0))) <= 10;
+
       this.cashflow.push({
         id:              makeId('cf'),
         company:         ht.company,
@@ -285,6 +298,10 @@ export class MatchingEngine {
         bankTransactionId: top.bankId,
         cardTransactionId: top.cardId,
         fixedCostId:     '',
+        amountStatus:    status === 'AUTO_MATCHED' ? (isFullyPaid ? '지급 완료' : '부분 지급') : '매칭 필요',
+        invoiceAmount:   ht.totalAmount,
+        actualAmount:    top.bankId ? (this.banks.find(b => b._id === top.bankId)?.withdrawAmount ?? 0) : (this.cards.find(c => c._id === top.cardId)?.amount ?? 0),
+        showInCashflow:  true,
       });
     }
   }
@@ -315,7 +332,15 @@ export class MatchingEngine {
       }
 
       if (candidates.length === 0) {
-        this.cashflow.push(this.htSalesEntry(ht, 'UNMATCHED', 'hometax_sales_unmatched', '', ht.issuedDate));
+        // 미매칭 매출: 작성일자 기준, 입금 예정 상태로 생성
+        const salesDate = ht.writtenDate || ht.issuedDate;
+        const unmatched = this.htSalesEntry(ht, 'UNMATCHED', 'hometax_sales_unmatched', '', salesDate);
+        unmatched.amountStatus    = '입금 예정';
+        unmatched.invoiceAmount   = ht.totalAmount;
+        unmatched.remainingAmount = ht.totalAmount;
+        unmatched.incomeAmount    = 0; // 아직 미입금
+        unmatched.showInCashflow  = true;
+        this.cashflow.push(unmatched);
         continue;
       }
 
@@ -341,14 +366,20 @@ export class MatchingEngine {
       });
 
       const vname = ht.customerName;
+      // 매칭된 은행 입금 금액
+      const depositBank  = this.banks.find(b => b._id === top.bankId);
+      const depositAmt   = depositBank?.depositAmount ?? 0;
+      const isFullSales  = Math.abs(ht.totalAmount - depositAmt) <= 10;
+      const salesEntryDate = ht.writtenDate || ht.issuedDate;
+
       this.cashflow.push({
         id:              makeId('cf'),
         company:         ht.company,
-        date:            ht.issuedDate,
+        date:            salesEntryDate,  // 작성일자(A열) 기준
         vendorName:      vname,
         category:        '매출',
         subCategory:     '매출수금',
-        incomeAmount:    ht.totalAmount,
+        incomeAmount:    ht.totalAmount,  // 세금계산서 총액을 income으로
         expenseAmount:   0,
         sourceType:      'HT_SALES_TAX',
         paymentSourceType: 'BANK_IBK',
@@ -358,6 +389,15 @@ export class MatchingEngine {
         bankTransactionId: top.bankId,
         cardTransactionId: '',
         fixedCostId:     '',
+        amountStatus:     status === 'AUTO_MATCHED'
+          ? (isFullSales ? '입금 완료' : (depositAmt > ht.totalAmount ? '초과 입금 검토 필요' : '부분 입금'))
+          : '매칭 필요',
+        invoiceAmount:    ht.totalAmount,
+        actualAmount:     depositAmt,
+        accumulatedAmount: depositAmt,
+        remainingAmount:  Math.max(0, ht.totalAmount - depositAmt),
+        actualDate:       depositBank?.transactionDate,
+        showInCashflow:   true,
       });
     }
   }
@@ -438,12 +478,13 @@ export class MatchingEngine {
   // ── Helper builders ────────────────────────────────────────────────────
   private htEntry(
     ht: TaggedHT, status: MatchStatus, reason: string,
-    bankId: string, cardId: string, date: string
+    bankId: string, cardId: string, _date: string  // _date 인수는 writtenDate||issuedDate로 오버라이드됨
   ): CashflowEntry {
+    const entryDate = ht.writtenDate || ht.issuedDate;
     return {
       id:              makeId('cf'),
       company:         ht.company,
-      date,
+      date:            entryDate,
       vendorName:      ht.vendorName,
       category:        '매입',
       subCategory:     ht.taxType === 'exempt' ? '매입(면세)' : '매입(과세)',
@@ -457,17 +498,20 @@ export class MatchingEngine {
       bankTransactionId: bankId,
       cardTransactionId: cardId,
       fixedCostId:     '',
+      invoiceAmount:   ht.totalAmount,
+      showInCashflow:  true,
     };
   }
 
   private htSalesEntry(
     ht: TaggedHT, status: MatchStatus, reason: string,
-    bankId: string, date: string
+    bankId: string, _date: string  // _date 인수는 writtenDate||issuedDate로 오버라이드됨
   ): CashflowEntry {
+    const entryDate = ht.writtenDate || ht.issuedDate;
     return {
       id:              makeId('cf'),
       company:         ht.company,
-      date,
+      date:            entryDate,
       vendorName:      ht.customerName,
       category:        '매출',
       subCategory:     '매출수금',
@@ -481,6 +525,8 @@ export class MatchingEngine {
       bankTransactionId: bankId,
       cardTransactionId: '',
       fixedCostId:     '',
+      invoiceAmount:   ht.totalAmount,
+      showInCashflow:  true,
     };
   }
 

@@ -38,26 +38,18 @@ function monthStr(year: number, month: number): string {
 }
 
 function prevNextMonth(year: number, month: number) {
-  const prev = month === 1  ? monthStr(year - 1, 12)     : monthStr(year, month - 1);
-  const next = month === 12 ? monthStr(year + 1, 1)      : monthStr(year, month + 1);
+  const prev = month === 1  ? monthStr(year - 1, 12) : monthStr(year, month - 1);
+  const next = month === 12 ? monthStr(year + 1, 1)  : monthStr(year, month + 1);
   return { prev, next };
 }
 
-function fmtAmt(v: number): { text: string; cls: string } {
-  if (v === 0) return { text: '', cls: '' };
-  const abs = new Intl.NumberFormat('ko-KR').format(Math.abs(v));
-  return v > 0
-    ? { text: abs,       cls: 'amt-income' }   // 수입: 파랑/녹색
-    : { text: abs,       cls: 'amt-expense' };  // 지출: 빨강 (절댓값 표시)
-}
-
-// ── Error / Empty 공통 컴포넌트 ───────────────────────────────────────────────
+// ── 에러 컴포넌트 ─────────────────────────────────────────────────────────────
 
 function EnvWarn() {
   return (
     <div className="env-warn">
       <strong>⚠️ Supabase 환경변수가 설정되지 않았습니다.</strong><br />
-      Vercel Dashboard → Settings → Environment Variables 에 3개를 등록하고 <strong>Redeploy</strong> 하세요.<br /><br />
+      Vercel → Settings → Environment Variables 에 등록 후 Redeploy 하세요.<br /><br />
       &nbsp;• NEXT_PUBLIC_SUPABASE_URL &nbsp;• NEXT_PUBLIC_SUPABASE_ANON_KEY &nbsp;• SUPABASE_SERVICE_ROLE_KEY<br /><br />
       진단: <a href="/api/env-check" target="_blank">/api/env-check</a> · <a href="/api/db-check" target="_blank">/api/db-check</a>
     </div>
@@ -75,7 +67,7 @@ function DbErrWarn({ message, code }: { message: string; code?: string }) {
   );
 }
 
-// ── 월간 요약 영역 ────────────────────────────────────────────────────────────
+// ── 월간 요약 ─────────────────────────────────────────────────────────────────
 
 function SummarySection({ summary, daysInMonth, year, month }: {
   summary: CashflowMonthlySummary;
@@ -96,18 +88,15 @@ function SummarySection({ summary, daysInMonth, year, month }: {
     return v < 0 ? `-${abs}` : abs;
   }
 
-  // 일별 필요한 돈
   const dailyRequired: Record<number, number> = {};
   for (let d = 1; d <= daysInMonth; d++) {
     const req = (daily.cashIncome[d] ?? 0) + (daily.salesCollection[d] ?? 0) - (daily.payablesAndFixedCosts[d] ?? 0);
     if (req !== 0) dailyRequired[d] = req;
   }
-
   const reqCls = totals.requiredMoney < 0 ? 'amt-expense' : totals.requiredMoney > 0 ? 'amt-income' : '';
 
   return (
     <div className="summary-section">
-      {/* 월간 요약 카드 4개 */}
       <div className="summary-cards">
         <div className="summary-card summary-cash">
           <div className="summary-card-label">현금입금 합계</div>
@@ -130,7 +119,6 @@ function SummarySection({ summary, daysInMonth, year, month }: {
         </div>
       </div>
 
-      {/* 일별 요약 테이블 */}
       <div className="pivot-wrap" style={{ marginBottom: 20 }}>
         <table className="pivot-table">
           <thead>
@@ -289,23 +277,32 @@ export default async function CashflowPage({ searchParams }: Props) {
   const startDate    = `${year}-${String(month).padStart(2, '0')}-01`;
   const endDate      = `${year}-${String(month).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
 
+  // V2 컬럼 포함 쿼리 (매칭 완료 제외, show_in_cashflow=true만)
   const result = await fetchTable<DbEntry>(
     'cashflow_entries',
     (client) =>
       client
         .from('cashflow_entries')
-        .select('id,company_code,entry_date,vendor_name,vendor_name_mapped,hometax_invoice_id,category,sub_category,income_amount,expense_amount,match_status,source_type,payment_source_type')
+        .select([
+          'id,company_code,entry_date,vendor_name,vendor_name_mapped,vendor_name_override',
+          'hometax_invoice_id,category,sub_category,display_category',
+          'income_amount,expense_amount,match_status,source_type,payment_source_type',
+          'amount_status,invoice_amount,actual_amount,accumulated_amount,remaining_amount,actual_date',
+          'show_in_cashflow,group_id,group_name,group_order,is_completed,completed_at',
+        ].join(','))
         .gte('entry_date', startDate)
         .lte('entry_date', endDate)
+        .eq('is_completed', false)
+        .eq('show_in_cashflow', true)
         .order('entry_date', { ascending: true }) as any,
   );
 
-  // 거래처명: 홈택스 G열 → 고정비 E열 → 기존 vendor_name
+  // 거래처명 resolve용 HT 조회
   const htIds = result.status === 'ok'
-    ? [...new Set(result.data.map(e => e.hometax_invoice_id).filter(Boolean))] as string[]
+    ? [...new Set(result.data.map((e: DbEntry) => e.hometax_invoice_id).filter(Boolean))] as string[]
     : [];
 
-  const [htResult, fcResult] = await Promise.all([
+  const [htResult, fcResult, catResult] = await Promise.all([
     htIds.length > 0
       ? fetchTable<HtVendorRef & { id: string }>(
           'hometax_invoices',
@@ -324,20 +321,35 @@ export default async function CashflowPage({ searchParams }: Props) {
           .select('vendor_name,vendor_alias')
           .eq('is_active', true) as any,
     ),
+    // 구분 항목 목록
+    fetchTable<{ id: string; category_value: string; is_system: boolean; sort_order: number }>(
+      'cashflow_category_items',
+      (client) =>
+        client
+          .from('cashflow_category_items')
+          .select('id,category_value,is_system,sort_order')
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true }) as any,
+    ),
   ]);
 
   const htById = new Map<string, HtVendorRef>();
   if (htResult.status === 'ok') {
-    for (const ht of htResult.data) {
-      htById.set(ht.id, ht);
-    }
+    for (const ht of htResult.data) htById.set(ht.id, ht);
   }
   const fcAliasByVendorName = fcResult.status === 'ok'
     ? buildFcAliasMap(fcResult.data)
     : new Map<string, string>();
 
-  const resolveVendor = (entry: DbEntry) =>
-    resolveCashflowVendorName(entry, htById, fcAliasByVendorName);
+  const categoryItems = catResult.status === 'ok'
+    ? catResult.data.map(c => c.category_value)
+    : [];
+
+  const resolveVendor = (entry: DbEntry) => {
+    // vendor_name_override가 있으면 우선
+    if (entry.vendor_name_override) return entry.vendor_name_override;
+    return resolveCashflowVendorName(entry, htById, fcAliasByVendorName);
+  };
 
   const resolveVendorByFields = (vendorName: string, hometaxInvoiceId: string | null) =>
     resolveCashflowVendorName(
@@ -346,8 +358,6 @@ export default async function CashflowPage({ searchParams }: Props) {
       fcAliasByVendorName,
     );
 
-  // 카드 결제 대상 기간: 카드별 사용기간이 다르므로 가장 넓은 범위로 한 번에 조회
-  // 각 카드 그룹에서 해당 카드의 실제 기간으로 재필터링
   const cardRange = getWidestCardDateRange(year, month);
   const cardTxResult = await fetchTable<CardTxRow>(
     'card_transactions',
@@ -361,12 +371,13 @@ export default async function CashflowPage({ searchParams }: Props) {
         .gt('amount', 0) as any,
   );
 
-  const pivotRows    = result.status === 'ok' ? buildMonthlyPivot(result.data, daysInMonth, resolveVendor) : [];
-  const summary      = result.status === 'ok' && result.data.length > 0
+  const pivotRows = result.status === 'ok'
+    ? buildMonthlyPivot(result.data, daysInMonth, resolveVendor)
+    : [];
+  const summary = result.status === 'ok' && result.data.length > 0
     ? buildCashflowMonthlySummary(result.data, monthStr(year, month), daysInMonth)
     : null;
 
-  // 카드-홈택스 매칭: 해당 기간 카드 거래 중 홈택스 계산서와 매칭된 항목 조회
   const cardTxIds = cardTxResult.status === 'ok' ? cardTxResult.data.map(c => c.id) : [];
   const matchedCfResult = cardTxIds.length > 0
     ? await fetchTable<CardMatchRow>(
@@ -399,9 +410,14 @@ export default async function CashflowPage({ searchParams }: Props) {
           <h1 className="page-title">자금수지현황표</h1>
           <p className="page-sub">월별 피벗 · 카드는 결제예정일 기준 집계</p>
         </div>
-        <a href="/transactions" style={{ fontSize: 12, color: '#64748b', textDecoration: 'underline' }}>
-          전체 원장 보기 →
-        </a>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <a href="/cashflow/matched" style={{ fontSize: 12, color: '#7c3aed', textDecoration: 'underline', fontWeight: 600 }}>
+            매칭 완료 내역 →
+          </a>
+          <a href="/transactions" style={{ fontSize: 12, color: '#64748b', textDecoration: 'underline' }}>
+            전체 원장 보기 →
+          </a>
+        </div>
       </div>
 
       {/* 월 내비게이션 */}
@@ -411,7 +427,6 @@ export default async function CashflowPage({ searchParams }: Props) {
         <a href={`/cashflow?month=${next}`}>{next} ▶</a>
       </div>
 
-      {/* 상태별 메시지 */}
       {result.status === 'env_missing'   && <EnvWarn />}
       {result.status === 'table_missing' && <DbErrWarn message="테이블 없음" code="42P01" />}
       {result.status === 'db_error'      && <DbErrWarn message={result.message} code={result.code} />}
@@ -419,7 +434,7 @@ export default async function CashflowPage({ searchParams }: Props) {
       {result.status === 'ok' && result.data.length === 0 && (
         <div className="empty" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 48 }}>
           <p className="empty-title">해당 월의 자금수지 데이터가 없습니다</p>
-          <p>먼저 <code>npm run db:import</code>를 실행하거나 다른 월을 선택하세요.</p>
+          <p>먼저 파일을 업로드하거나 다른 월을 선택하세요.</p>
         </div>
       )}
 
@@ -436,6 +451,7 @@ export default async function CashflowPage({ searchParams }: Props) {
           <PivotTable
             rows={pivotRows}
             cardGroups={cardGroups}
+            categoryItems={categoryItems}
             daysInMonth={daysInMonth}
             year={year}
             month={month}
