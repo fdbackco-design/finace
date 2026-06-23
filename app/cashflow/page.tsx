@@ -5,7 +5,11 @@ import { fetchTable } from '@/src/lib/supabase/server';
 import {
   buildMonthlyPivot,
   buildCashflowMonthlySummary,
+  CARD_VENDOR_LABEL,
+  COMPANY_LABEL,
+  CHECK_ORDER,
   type DbEntry,
+  type CashflowMonthlyRow,
   type CashflowMonthlySummary,
 } from '@/src/lib/cashflow/monthlyPivot';
 import {
@@ -402,6 +406,51 @@ export default async function CashflowPage({ searchParams }: Props) {
     ? buildCardGroups(cardTxResult.data, matchMap, resolveVendorByFields, year, month)
     : [];
 
+  // cashflow_entries에 카드지출 행이 없는 카드 그룹은 합성 행으로 추가
+  const existingCardKeys = new Set(pivotRows.filter(r => r.cardKey).map(r => r.cardKey!));
+  for (const group of cardGroups) {
+    if (existingCardKeys.has(group.cardKey) || group.transactions.length === 0) continue;
+    const company = group.cardKey.split(':')[0];
+    const totalAmt = group.transactions.reduce((s, t) => s + t.amount, 0);
+    const payDay = parseInt(group.period.settlementDate.split('-')[2], 10);
+    const syntheticRow: CashflowMonthlyRow = {
+      check:           COMPANY_LABEL[company] ?? company,
+      category:        '카드지출',
+      displayCategory: '미지급금',
+      vendorName:      CARD_VENDOR_LABEL[group.cardKey] ?? group.label,
+      total:           -totalAmt,
+      days:            { [payDay]: -totalAmt },
+      rawEntryIds:     [],
+      cardKey:         group.cardKey,
+      amountStatus:    null,
+      invoiceAmount:   0,
+      actualAmount:    0,
+      remainingAmount: 0,
+      groupId:         null,
+      groupName:       null,
+      groupOrder:      0,
+      isCompleted:     false,
+      entryCount:      group.transactions.length,
+    };
+    pivotRows.push(syntheticRow);
+  }
+  if (pivotRows.length > 0) {
+    pivotRows.sort((a, b) => {
+      const aOrd = CHECK_ORDER[a.check] ?? 99;
+      const bOrd = CHECK_ORDER[b.check] ?? 99;
+      if (aOrd !== bOrd) return aOrd - bOrd;
+      const aGrp = !!a.groupId;
+      const bGrp = !!b.groupId;
+      if (aGrp !== bGrp) return aGrp ? 1 : -1;
+      if (aGrp && bGrp) {
+        if (a.groupId !== b.groupId) return (a.groupName ?? '').localeCompare(b.groupName ?? '', 'ko');
+        return a.groupOrder - b.groupOrder;
+      }
+      if (a.category !== b.category) return a.category.localeCompare(b.category, 'ko');
+      return a.vendorName.localeCompare(b.vendorName, 'ko');
+    });
+  }
+
   return (
     <div className="page" style={{ maxWidth: '100%' }}>
       {/* 헤더 */}
@@ -431,14 +480,14 @@ export default async function CashflowPage({ searchParams }: Props) {
       {result.status === 'table_missing' && <DbErrWarn message="테이블 없음" code="42P01" />}
       {result.status === 'db_error'      && <DbErrWarn message={result.message} code={result.code} />}
 
-      {result.status === 'ok' && result.data.length === 0 && (
+      {result.status === 'ok' && pivotRows.length === 0 && cardGroups.length === 0 && (
         <div className="empty" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 48 }}>
           <p className="empty-title">해당 월의 자금수지 데이터가 없습니다</p>
           <p>먼저 파일을 업로드하거나 다른 월을 선택하세요.</p>
         </div>
       )}
 
-      {result.status === 'ok' && result.data.length > 0 && (
+      {result.status === 'ok' && (pivotRows.length > 0 || cardGroups.length > 0) && (
         <>
           {summary && <SummarySection summary={summary} daysInMonth={daysInMonth} year={year} month={month} />}
           <p style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>

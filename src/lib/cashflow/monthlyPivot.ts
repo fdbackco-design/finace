@@ -61,12 +61,12 @@ export type CashflowMonthlyRow = {
 // ── 매핑 상수 ─────────────────────────────────────────────────────────────────
 
 // 카드 결제 예정일 (회사:카드종류 → 결제일) — CARD_SETTLEMENT_CONFIG 에서 파생
-const CARD_PAYMENT_DAY: Record<string, number> = Object.fromEntries(
+export const CARD_PAYMENT_DAY: Record<string, number> = Object.fromEntries(
   Object.entries(CARD_SETTLEMENT_CONFIG).map(([k, v]) => [k, v.paymentDay])
 );
 
 // 카드 결제 행 거래처 이름
-const CARD_VENDOR_LABEL: Record<string, string> = {
+export const CARD_VENDOR_LABEL: Record<string, string> = {
   'feedback:CARD_IBK':    '신용카드 대금결제(기업은행) 21일 결제분',
   'feedback:CARD_WOORI':  '신용카드 대금결제(우리은행) 20일 결제분',
   'sangsaeng:CARD_IBK':   '신용카드 대금결제(기업은행) 25일 결제분',
@@ -75,14 +75,14 @@ const CARD_VENDOR_LABEL: Record<string, string> = {
   'shootmoon:CARD_WOORI': '신용카드 대금결제(우리은행) 20일 결제분',
 };
 
-const COMPANY_LABEL: Record<string, string> = {
+export const COMPANY_LABEL: Record<string, string> = {
   feedback:  '피드백',
   sangsaeng: '상생',
   shootmoon: '슛문',
 };
 
 // 정렬 순서: 작을수록 위쪽
-const CHECK_ORDER: Record<string, number> = {
+export const CHECK_ORDER: Record<string, number> = {
   '가수금':   0,
   '매출수금': 1,
   '피드백':   2,
