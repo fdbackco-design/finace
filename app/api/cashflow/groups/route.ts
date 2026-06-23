@@ -80,18 +80,56 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  const groupId = body?.id;
+  const groupId  = body?.id;
   if (!groupId) return NextResponse.json({ error: 'id 필수' }, { status: 400 });
 
   const client = createServerClient();
   if (!client) return NextResponse.json({ error: 'DB 연결 실패' }, { status: 500 });
 
+  // ── 항목 추가 모드 (entry_ids 있을 때) ─────────────────────────────────
+  if (body.entry_ids && Array.isArray(body.entry_ids) && body.entry_ids.length > 0) {
+    const entryIds: string[] = body.entry_ids;
+
+    // 현재 그룹의 최대 order 조회
+    const { data: existing } = await (client as any)
+      .from('cashflow_entries')
+      .select('group_order')
+      .eq('group_id', groupId)
+      .order('group_order', { ascending: false })
+      .limit(1);
+    const startOrder: number = (existing?.[0]?.group_order ?? -1) + 1;
+
+    // 그룹명 가져오기
+    const { data: grp } = await (client as any)
+      .from('cashflow_groups')
+      .select('group_name')
+      .eq('id', groupId)
+      .single();
+    if (!grp) return NextResponse.json({ error: '그룹을 찾을 수 없습니다' }, { status: 404 });
+
+    for (let i = 0; i < entryIds.length; i++) {
+      await (client as any)
+        .from('cashflow_entries')
+        .update({ group_id: groupId, group_name: grp.group_name, group_order: startOrder + i })
+        .eq('id', entryIds[i]);
+    }
+
+    await (client as any).from('cashflow_groups_history').insert({
+      group_id:   groupId,
+      action:     'ADD_ENTRIES',
+      group_name: grp.group_name,
+      entry_ids:  entryIds,
+      changed_by: body.changed_by ?? 'user',
+    });
+
+    return NextResponse.json({ ok: true, groupName: grp.group_name, addedCount: entryIds.length });
+  }
+
+  // ── 그룹명 변경 모드 ────────────────────────────────────────────────────
   const updates: Record<string, unknown> = {};
   if (body.group_name) updates.group_name = body.group_name.trim();
-
   if (Object.keys(updates).length === 0) return NextResponse.json({ message: '변경 없음' });
 
-  // 그룹명 변경 시 entries도 갱신
   if (updates.group_name) {
     await (client as any)
       .from('cashflow_entries')

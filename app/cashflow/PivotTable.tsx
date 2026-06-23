@@ -148,6 +148,54 @@ function GroupCreateModal({
   );
 }
 
+// ── 그룹에 추가 모달 ─────────────────────────────────────────────────────────
+
+function GroupAddModal({
+  selectedCount,
+  groups,
+  onConfirm,
+  onClose,
+}: {
+  selectedCount: number;
+  groups: { id: string; name: string; memberCount: number }[];
+  onConfirm: (groupId: string, groupName: string) => void;
+  onClose: () => void;
+}) {
+  const [picked, setPicked] = useState<string>('');
+  const pickedName = groups.find(g => g.id === picked)?.name ?? '';
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()}>
+        <h3 className="modal-title">그룹에 추가</h3>
+        <p className="modal-sub">{selectedCount}개 항목을 추가할 그룹을 선택하세요.</p>
+        <div className="group-add-list">
+          {groups.map(g => (
+            <div
+              key={g.id}
+              className={`group-add-item${picked === g.id ? ' group-add-item-active' : ''}`}
+              onClick={() => setPicked(g.id)}
+            >
+              <span className="group-add-name">{g.name}</span>
+              <span className="group-add-count">{g.memberCount}건</span>
+            </div>
+          ))}
+        </div>
+        <div className="modal-actions">
+          <button className="btn-secondary" onClick={onClose}>취소</button>
+          <button
+            className="btn-primary"
+            disabled={!picked}
+            onClick={() => onConfirm(picked, pickedName)}
+          >
+            추가
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── 매칭 완료 확인 모달 ──────────────────────────────────────────────────────
 
 function CompleteConfirmModal({
@@ -332,6 +380,7 @@ export default function PivotTable({
   // 모달 상태
   const [vendorModal,   setVendorModal]   = useState<{ rowKey: string; entryIds: string[]; currentName: string } | null>(null);
   const [groupModal,    setGroupModal]    = useState(false);
+  const [groupAddModal, setGroupAddModal] = useState(false);
   const [completeModal, setCompleteModal] = useState(false);
   const [isPending, startTransition]      = useTransition();
 
@@ -486,6 +535,31 @@ export default function PivotTable({
     });
   }, [localRows, selected, year, month]);
 
+  // ── 그룹에 항목 추가 ─────────────────────────────────────────────────────
+
+  const handleGroupAdd = useCallback((groupId: string, groupName: string) => {
+    const entryIds = localRows
+      .filter(r => selected.has(rowKey(r)))
+      .flatMap(r => r.rawEntryIds);
+
+    startTransition(async () => {
+      await fetch('/api/cashflow/groups', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: groupId, entry_ids: entryIds }),
+      });
+      setLocalRows(prev =>
+        prev.map(r =>
+          selected.has(rowKey(r))
+            ? { ...r, groupId, groupName }
+            : r
+        )
+      );
+      setGroupAddModal(false);
+      setSelected(new Set());
+    });
+  }, [localRows, selected]);
+
   // ── 매칭 완료 처리 ───────────────────────────────────────────────────────
 
   const handleComplete = useCallback(() => {
@@ -518,6 +592,12 @@ export default function PivotTable({
     gm.total      += row.total;
     gm.memberCount++;
   }
+
+  const existingGroups = Array.from(groupMeta.entries()).map(([id, gm]) => ({
+    id,
+    name: gm.name,
+    memberCount: gm.memberCount,
+  }));
 
   // check 그룹별 묶기 (기존 로직)
   function groupByCheck(rowList: CashflowMonthlyRow[]): [string, CashflowMonthlyRow[]][] {
@@ -659,6 +739,11 @@ export default function PivotTable({
           <button className="btn-batch" onClick={() => setGroupModal(true)}>
             그룹 만들기
           </button>
+          {existingGroups.length > 0 && (
+            <button className="btn-batch btn-batch-add" onClick={() => setGroupAddModal(true)}>
+              그룹에 추가
+            </button>
+          )}
           <button className="btn-batch btn-batch-complete" onClick={() => setCompleteModal(true)}>
             매칭 완료 처리
           </button>
@@ -772,6 +857,16 @@ export default function PivotTable({
         />
       )}
 
+      {/* 그룹에 추가 모달 */}
+      {groupAddModal && (
+        <GroupAddModal
+          selectedCount={selectedCount}
+          groups={existingGroups}
+          onConfirm={handleGroupAdd}
+          onClose={() => setGroupAddModal(false)}
+        />
+      )}
+
       {/* 매칭 완료 확인 모달 */}
       {completeModal && (
         <CompleteConfirmModal
@@ -796,6 +891,8 @@ export default function PivotTable({
         .btn-batch:hover { background: #6d28d9; }
         .btn-batch-complete { background: #059669; }
         .btn-batch-complete:hover { background: #047857; }
+        .btn-batch-add { background: #0ea5e9; }
+        .btn-batch-add:hover { background: #0284c7; }
         .btn-batch-ghost { padding: 5px 12px; background: transparent; color: #64748b; border: 1px solid #e2e8f0; border-radius: 5px; font-size: 12px; cursor: pointer; }
         .amt-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
         .status-badge { font-size: 10px; padding: 1px 5px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
@@ -844,6 +941,13 @@ export default function PivotTable({
         .btn-secondary { padding: 8px 18px; background: #f1f5f9; color: #374151; border: none; border-radius: 7px; font-size: 13px; cursor: pointer; }
         .btn-secondary:hover { background: #e2e8f0; }
         .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,.6); z-index: 300; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; color: #7c3aed; }
+        /* 그룹에 추가 모달 */
+        .group-add-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; max-height: 240px; overflow-y: auto; }
+        .group-add-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer; transition: background .1s; }
+        .group-add-item:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .group-add-item-active { background: #f5f3ff !important; border-color: #7c3aed !important; }
+        .group-add-name { font-size: 14px; font-weight: 500; }
+        .group-add-count { font-size: 12px; color: #64748b; }
       `}</style>
     </>
   );
