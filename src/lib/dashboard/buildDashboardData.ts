@@ -9,6 +9,8 @@ import {
 export type CardUsageRow = {
   label:       string;
   amount:      number;
+  limit:       number;
+  remaining:   number;
   companyCode: string;
 };
 
@@ -85,6 +87,13 @@ export const COMPANY_ACCOUNTS: Record<string, BalanceAccountDef[]> = {
 
 const COMPANY_ORDER = ['feedback', 'sangsaeng', 'shootmoon'] as const;
 
+const CARD_LIMIT: Record<CardLabel, number> = {
+  '피드백 기업카드':  5_000_000,
+  '피드백 우리카드': 10_000_000,
+  '상생 기업카드':   8_000_000,
+  '상생 우리카드':  10_000_000,
+};
+
 const VALID_CARD_LABELS = new Set<string>(ALL_CARD_LABELS);
 
 // ── 헬퍼 ─────────────────────────────────────────────────────────────────────
@@ -130,11 +139,17 @@ export function buildCardUsageRows(cards: CardTx[]): CardUsageRow[] {
 
   return [...ALL_CARD_LABELS]
     .sort((a, b) => cardLabelSortOrder(a) - cardLabelSortOrder(b))
-    .map(label => ({
-      label:       CARD_DISPLAY[label],
-      amount:      totals.get(label) ?? 0,
-      companyCode: label.startsWith('피드백') ? 'feedback' : 'sangsaeng',
-    }));
+    .map(label => {
+      const amount = totals.get(label) ?? 0;
+      const limit  = CARD_LIMIT[label];
+      return {
+        label:       CARD_DISPLAY[label],
+        amount,
+        limit,
+        remaining:   limit - amount,
+        companyCode: label.startsWith('피드백') ? 'feedback' : 'sangsaeng',
+      };
+    });
 }
 
 /** 회사·은행종류별 최신 잔액 */

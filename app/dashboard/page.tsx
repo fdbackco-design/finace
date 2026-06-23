@@ -87,7 +87,7 @@ export default async function DashboardPage() {
   return (
     <div className="page page-dashboard">
       <h1 className="page-title">대시보드</h1>
-      <p className="page-sub">이번 달 카드 사용액 · 계좌 현재잔액</p>
+      <p className="page-sub">이번 달 카드 잔여 한도 · 계좌 현재잔액</p>
 
       {cardResult.status === 'env_missing' && (
         <div className="env-warn">
@@ -127,7 +127,7 @@ export default async function DashboardPage() {
                 {cardRows.map(row => (
                   <tr key={row.label} className={companyRowClass(row.companyCode)}>
                     <td className="dash-card-label">{row.label}</td>
-                    <td className="dash-card-amount num">{fmtCardAmt(row.amount)}</td>
+                    <td className="dash-card-amount num">{fmtCardAmt(row.remaining)}</td>
                   </tr>
                 ))}
                 {cardRows.length === 0 && (
