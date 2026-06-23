@@ -249,7 +249,7 @@ export async function runRematch(month: string): Promise<RematchResult> {
       income_amount:        e.incomeAmount,
       expense_amount:       e.expenseAmount,
       source_type:          e.sourceType,
-      payment_source_type:  e.paymentSourceType           ?? null,
+      payment_source_type:  e.paymentSourceType            || null,  // '' → null (CHECK 제약 대응)
       match_status:         e.matchStatus,
       match_reason:         e.matchReason                 ?? null,
       hometax_invoice_id:   htDbId,

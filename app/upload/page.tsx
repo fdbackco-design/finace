@@ -266,6 +266,19 @@ export default function UploadPage() {
             </div>
           </div>
 
+          {/* 재매칭 오류 상세 */}
+          {result.rematchErrors && result.rematchErrors.length > 0 && (
+            <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 12 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>⚠️ 재매칭 오류 ({result.rematchErrors.length}건) — 자금수지 항목이 생성되지 않았습니다</div>
+              {result.rematchErrors.slice(0, 5).map((e, i) => (
+                <div key={i} style={{ color: '#92400e', marginBottom: 2 }}>{e}</div>
+              ))}
+              {result.rematchErrors.length > 5 && (
+                <div style={{ color: '#92400e' }}>…외 {result.rematchErrors.length - 5}건</div>
+              )}
+            </div>
+          )}
+
           {/* 이동 버튼 */}
           <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
             <a href={`/cashflow?month=${result.month}`} className="btn" style={{ fontSize: 13, padding: '10px 20px', flex: 1, textAlign: 'center' }}>

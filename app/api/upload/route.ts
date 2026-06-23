@@ -68,6 +68,7 @@ export type UploadApiResponse = {
     unmatched:               number;
   };
   error?: string;
+  rematchErrors?: string[];  // 재매칭 중 발생한 DB 오류 목록
 };
 
 // ── 핸들러 ───────────────────────────────────────────────────────────────────
@@ -206,6 +207,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<UploadApiResp
       manualReview:           matchResult.manualReview,
       unmatched:              matchResult.unmatched,
     },
+    rematchErrors: importResult.errors.length > 0 ? importResult.errors : undefined,
   };
 
   return NextResponse.json(response);
