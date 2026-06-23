@@ -23,7 +23,8 @@ function scoreCandidate(
   candidateAmount: number,
   candidateVendorFields: string[],
   candidateDate: string,
-  maxDateDiff = 7   // HT매출은 7일, HT매입은 60일로 호출
+  maxDateDiff = 7,
+  requireVendorForDistant = false  // step3 bank(매입출금)만 true — 고정비 충돌 방지
 ): { score: number; reason: string } {
   const amountDiff = Math.abs(htAmount - candidateAmount);
   if (amountDiff > 10) return { score: 0, reason: '' }; // amount must match within ₩10
@@ -37,9 +38,8 @@ function scoreCandidate(
                   : dateDiff <= 30 ? 0.2
                   : 0.1;
   const vendorScore = Math.max(...candidateVendorFields.map(f => similarity(htVendor, f)));
-  // 7일 초과 매칭은 거래처 유사도가 충분해야만 후보로 인정
-  // → 급여 등 고정비 출금이 우연히 금액 일치한 먼 계산서에 소비되는 것을 방지
-  if (dateDiff > 7 && vendorScore < 0.3) return { score: 0, reason: '' };
+  // 매입 은행출금에서만: 7일 초과 시 거래처 유사도 필요 → 급여출금이 먼 계산서에 소비되는 것 방지
+  if (requireVendorForDistant && dateDiff > 7 && vendorScore < 0.3) return { score: 0, reason: '' };
   const score = 0.5 + dateScore + vendorScore * 0.1; // amount already matched → base 0.5
 
   const reason = [
@@ -213,7 +213,8 @@ export class MatchingEngine {
           b.withdrawAmount,
           [b.description, b.counterAccountName, b.counterAccountNo],
           b.transactionDate,
-          60   // 매입: 최대 60일
+          60,   // 매입: 최대 60일
+          true  // 7일 초과 시 거래처 유사도 필요 (급여 등 고정비 보호)
         );
         if (r.score > 0) {
           candidates.push({ bankId: b._id, cardId: '', score: r.score, reason: r.reason, date: b.transactionDate });
