@@ -721,15 +721,15 @@ tbody tr:hover td {
   left: 72px;
   z-index: 3;
   box-sizing: border-box;
-  min-width: 88px;
-  width: 88px;
-  max-width: 88px;
+  min-width: 120px;
+  width: 120px;
+  max-width: 120px;
   border-right: 1px solid #e2e8f0 !important;
   background: #fff;
 }
 .sticky-col-3 {
   position: sticky;
-  left: 160px;
+  left: 192px;
   z-index: 3;
   box-sizing: border-box;
   min-width: 200px;
@@ -742,7 +742,7 @@ tbody tr:hover td {
 }
 .sticky-col-4 {
   position: sticky;
-  left: 360px;
+  left: 392px;
   z-index: 3;
   box-sizing: border-box;
   min-width: 120px;
