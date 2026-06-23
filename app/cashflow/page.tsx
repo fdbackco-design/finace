@@ -27,6 +27,7 @@ import {
   type HtVendorRef,
 } from '@/src/lib/cashflow/resolveVendorName';
 import PivotTable, { type PivotCardGroup, type PivotCardTx } from './PivotTable';
+import RematchButton from './RematchButton';
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
 
@@ -460,6 +461,7 @@ export default async function CashflowPage({ searchParams }: Props) {
           <p className="page-sub">월별 피벗 · 카드는 결제예정일 기준 집계</p>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <RematchButton month={monthStr(year, month)} />
           <a href="/cashflow/matched" style={{ fontSize: 12, color: '#7c3aed', textDecoration: 'underline', fontWeight: 600 }}>
             매칭 완료 내역 →
           </a>
