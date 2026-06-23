@@ -1245,3 +1245,62 @@ tbody tr:hover td {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   피벗 테이블 카드 행 확장/축소
+══════════════════════════════════════════════════════════════ */
+
+/* 카드 행 토글 버튼 */
+.pivot-card-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: #64748b;
+  padding: 2px 4px;
+  border-radius: 3px;
+  line-height: 1;
+}
+.pivot-card-toggle:hover { background: #e2e8f0; color: #334155; }
+
+/* 카드 행의 거래처 셀 안 기간 표시 */
+.pivot-card-period {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+/* 카드 상세 sub-row */
+.pivot-card-detail-row {
+  background: #f8fafc;
+  border-left: 3px solid #e2e8f0;
+}
+.pivot-card-detail-row.pivot-card-detail-ht {
+  background: #f0fdf4;
+  border-left-color: #86efac;
+}
+.pivot-card-detail-indent { width: 32px; }
+.pivot-card-detail-date   { font-size: 11px; color: #64748b; white-space: nowrap; padding: 3px 6px; }
+.pivot-card-detail-vendor { font-size: 12px; color: #334155; padding: 3px 6px; }
+.pivot-card-detail-amt    { font-size: 12px; padding: 3px 6px; }
+.pivot-card-detail-day    { padding: 0; }
+
+/* 계산서 반영 태그 */
+.pivot-card-detail-tag {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  background: #dcfce7;
+  color: #15803d;
+  border-radius: 3px;
+  padding: 1px 4px;
+  vertical-align: middle;
+}
+
+/* 상세 없음 행 */
+.pivot-card-detail-empty td {
+  font-size: 12px;
+  color: #94a3b8;
+  padding: 6px 12px;
+  background: #f8fafc;
+}

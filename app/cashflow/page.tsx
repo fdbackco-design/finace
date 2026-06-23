@@ -6,7 +6,6 @@ import {
   buildMonthlyPivot,
   buildCashflowMonthlySummary,
   type DbEntry,
-  type CashflowMonthlyRow,
   type CashflowMonthlySummary,
 } from '@/src/lib/cashflow/monthlyPivot';
 import {
@@ -17,13 +16,13 @@ import {
 import {
   getCardPeriod,
   getWidestCardDateRange,
-  type CardSettlementPeriod,
 } from '@/src/lib/cards/settlement';
 import {
   buildFcAliasMap,
   resolveCashflowVendorName,
   type HtVendorRef,
 } from '@/src/lib/cashflow/resolveVendorName';
+import PivotTable, { type PivotCardGroup, type PivotCardTx } from './PivotTable';
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
 
@@ -190,9 +189,8 @@ function SummarySection({ summary, daysInMonth, year, month }: {
   );
 }
 
-// ── 카드 지출 타입 ────────────────────────────────────────────────────────────
+// ── 카드 지출 그룹 빌더 ───────────────────────────────────────────────────────
 
-// card_transactions 직접 조회용 타입
 type CardTxRow = {
   id:            string;
   used_date:     string | null;
@@ -203,33 +201,12 @@ type CardTxRow = {
   source_type:   string;
 };
 
-// 카드-홈택스 매칭 cashflow_entries 조회용 타입
 type CardMatchRow = {
   card_transaction_id: string;
   entry_date:          string;
   category:            string;
   vendor_name:         string | null;
   hometax_invoice_id:  string | null;
-};
-
-// 카드 거래 1건 표시용 타입
-type CardTxDetail = {
-  id:          string;
-  usedDate:    string;
-  invoiceDate: string | null;  // 홈택스 계산서 작성일 (매칭된 경우)
-  vendorName:  string;         // 매칭된 경우 계산서 거래처명, 아니면 카드 가맹점명
-  category:    '카드지출' | '매입';
-  basis:       '계산서 날짜 반영' | '카드 결제일 반영';
-  amount:      number;
-};
-
-type CardExpenseGroup = {
-  label:          CardLabel;
-  cardKey:        string;   // 'feedback:CARD_IBK' 등
-  period:         CardSettlementPeriod;
-  totalAmount:    number;  // 전체 사용액 (홈택스 매칭 포함)
-  htMatchedTotal: number;  // 홈택스 매입으로 반영된 금액
-  transactions:   CardTxDetail[];
 };
 
 const VALID_CARD_LABELS = new Set<string>([
@@ -244,16 +221,19 @@ function cardLabelToKey(label: CardLabel): string {
   return '';
 }
 
-// ── 카드 지출 그룹 빌더 ───────────────────────────────────────────────────────
-
-function buildCardExpenseGroups(
+function buildCardGroups(
   rows:     CardTxRow[],
   matchMap: Map<string, CardMatchRow>,
   resolveVendor: (vendorName: string, hometaxInvoiceId: string | null) => string,
   year: number,
   month: number,
-): CardExpenseGroup[] {
-  const map = new Map<CardLabel, CardExpenseGroup>();
+): PivotCardGroup[] {
+  const map = new Map<CardLabel, {
+    cardKey: string;
+    label: string;
+    period: { settlementDate: string; usedDateFrom: string; usedDateTo: string };
+    txs: PivotCardTx[];
+  }>();
 
   for (const c of rows) {
     const label: CardLabel | null =
@@ -265,189 +245,35 @@ function buildCardExpenseGroups(
     const cardKey = cardLabelToKey(label);
     const period  = getCardPeriod(cardKey, year, month);
 
-    // 이 카드의 사용기간 범위 내 거래만 포함
     if (c.used_date && (c.used_date < period.usedDateFrom || c.used_date > period.usedDateTo)) continue;
 
     if (!map.has(label)) {
-      map.set(label, { label, cardKey, period, totalAmount: 0, htMatchedTotal: 0, transactions: [] });
+      map.set(label, { cardKey, label, period, txs: [] });
     }
-    const g = map.get(label)!;
-    g.totalAmount += c.amount;
 
-    const match = matchMap.get(c.id);
+    const match       = matchMap.get(c.id);
     const isHtMatched = !!(match && match.category === '매입');
+    const vendorName  = match
+      ? resolveVendor(match.vendor_name ?? '', match.hometax_invoice_id)
+      : (c.merchant_name ?? '');
 
-    if (isHtMatched) g.htMatchedTotal += c.amount;
-
-    g.transactions.push({
+    map.get(label)!.txs.push({
       id:          c.id,
       usedDate:    c.used_date ?? '',
-      invoiceDate: match?.entry_date ?? null,
-      vendorName:  match
-        ? resolveVendor(match.vendor_name ?? '', match.hometax_invoice_id)
-        : (c.merchant_name ?? ''),
-      category:    isHtMatched ? '매입' : '카드지출',
-      basis:       isHtMatched ? '계산서 날짜 반영' : '카드 결제일 반영',
+      vendorName,
       amount:      c.amount,
+      isHtMatched,
     });
   }
 
-  return Array.from(map.values()).sort(
-    (a, b) => cardLabelSortOrder(a.label) - cardLabelSortOrder(b.label)
-  );
-}
-
-// ── 카드 지출 섹션 ────────────────────────────────────────────────────────────
-
-function CardExpenseSection({
-  groups,
-  cashflowLabel,
-}: {
-  groups: CardExpenseGroup[];
-  cashflowLabel: string;
-}) {
-  if (groups.length === 0) return null;
-
-  const hasHtMatch = groups.some(g => g.htMatchedTotal > 0);
-
-  function fmtKrw(n: number): string {
-    return new Intl.NumberFormat('ko-KR').format(n) + '원';
-  }
-
-  return (
-    <div className="card-expense-section">
-      <h2>카드 지출 상세</h2>
-      <p style={{ marginTop: 4, color: '#64748b', fontSize: 12, marginBottom: 8 }}>
-        ※ 해당 카드 사용액은 {cashflowLabel} 자금수지현황의 카드 결제 예정액입니다.
-        {hasHtMatch && ' 홈택스 계산서 매칭 거래는 계산서 작성일 기준으로 반영됩니다.'}
-      </p>
-      {groups.map(g => (
-        <details key={g.label} className="card-group">
-          <summary>
-            <span className="card-group-label">{g.label}</span>
-            <span className="card-group-total">
-              지출 합계 {fmtKrw(g.totalAmount)}
-              {g.htMatchedTotal > 0 && (
-                <span className="card-group-ht-note">
-                  &nbsp;(이 중 {fmtKrw(g.htMatchedTotal)} 계산서 반영)
-                </span>
-              )}
-            </span>
-            <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 12 }}>
-              결제일 {g.period.settlementDate.slice(5)} · 사용기간 {g.period.usedDateFrom.slice(5)} ~ {g.period.usedDateTo.slice(5)}
-            </span>
-          </summary>
-          <div className="card-group-body">
-            {g.transactions.length === 0 ? (
-              <div className="card-group-empty">거래 내역이 없습니다.</div>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>사용일</th>
-                    {g.transactions.some(t => t.invoiceDate) && <th>계산서날짜</th>}
-                    <th>거래처</th>
-                    <th>구분</th>
-                    <th className="num">금액</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {g.transactions.map(t => (
-                    <tr key={t.id} className={t.category === '매입' ? 'card-tx-ht-matched' : ''}>
-                      <td style={{ whiteSpace: 'nowrap' }}>{t.usedDate}</td>
-                      {g.transactions.some(tx => tx.invoiceDate) && (
-                        <td style={{ whiteSpace: 'nowrap', color: t.invoiceDate ? '#0f766e' : '#94a3b8' }}>
-                          {t.invoiceDate ?? '−'}
-                        </td>
-                      )}
-                      <td>{t.vendorName}</td>
-                      <td>
-                        <span className={`card-tx-category ${t.category === '매입' ? 'card-tx-cat-ht' : 'card-tx-cat-card'}`}>
-                          {t.category}
-                        </span>
-                      </td>
-                      <td className="num amt-expense">{fmtKrw(t.amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </details>
-      ))}
-    </div>
-  );
-}
-
-// ── 피벗 테이블 렌더링 ────────────────────────────────────────────────────────
-
-function PivotTable({ rows, daysInMonth, year, month }: {
-  rows: CashflowMonthlyRow[];
-  daysInMonth: number;
-  year: number;
-  month: number;
-}) {
-  const dayNums = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-  // 요일 계산 (0=일, 6=토)
-  const weekdays = dayNums.map(d => new Date(year, month - 1, d).getDay());
-
-  // check 그룹별로 묶기
-  const groups: [string, CashflowMonthlyRow[]][] = [];
-  for (const row of rows) {
-    const last = groups[groups.length - 1];
-    if (!last || last[0] !== row.check) {
-      groups.push([row.check, [row]]);
-    } else {
-      last[1].push(row);
-    }
-  }
-
-  return (
-    <div className="pivot-wrap">
-      <table className="pivot-table">
-        <thead>
-          <tr>
-            <th className="pivot-check sticky-col-1">체크</th>
-            <th className="pivot-cat  sticky-col-2">구분</th>
-            <th className="pivot-vendor sticky-col-3">거래처</th>
-            <th className="pivot-total  sticky-col-4 num">지출금액</th>
-            {dayNums.map(d => (
-              <th key={d} className={`pivot-day num${weekdays[d - 1] === 0 ? ' pivot-day-sun' : weekdays[d - 1] === 6 ? ' pivot-day-sat' : ''}`}>
-                {d}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {groups.map(([check, groupRows]) => (
-            <>
-              {/* 그룹 헤더 행 */}
-              <tr key={`gh-${check}`} className="pivot-group-header">
-                <td colSpan={4 + daysInMonth}>{check}</td>
-              </tr>
-              {groupRows.map((row, ri) => {
-                const totFmt = fmtAmt(row.total);
-                return (
-                  <tr key={`${check}-${ri}`} className={row.total > 0 ? 'pivot-row-income' : 'pivot-row-expense'}>
-                    <td className="sticky-col-1 pivot-check">{row.check}</td>
-                    <td className="sticky-col-2 pivot-cat">{row.category}</td>
-                    <td className="sticky-col-3 pivot-vendor">{row.vendorName}</td>
-                    <td className={`sticky-col-4 pivot-total num ${totFmt.cls}`}>{totFmt.text}</td>
-                    {dayNums.map(d => {
-                      const v = row.days[d];
-                      if (!v) return <td key={d} className="pivot-day" />;
-                      const { text, cls } = fmtAmt(v);
-                      return <td key={d} className={`pivot-day num ${cls}`}>{text}</td>;
-                    })}
-                  </tr>
-                );
-              })}
-            </>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  return Array.from(map.values())
+    .sort((a, b) => cardLabelSortOrder(a.label as CardLabel) - cardLabelSortOrder(b.label as CardLabel))
+    .map(({ cardKey, label, period, txs }) => ({
+      cardKey,
+      label,
+      period,
+      transactions: txs.sort((a, b) => a.usedDate.localeCompare(b.usedDate)),
+    }));
 }
 
 // ── 페이지 ─────────────────────────────────────────────────────────────────────
@@ -561,8 +387,8 @@ export default async function CashflowPage({ searchParams }: Props) {
     }
   }
 
-  const cardGroups = cardTxResult.status === 'ok'
-    ? buildCardExpenseGroups(cardTxResult.data, matchMap, resolveVendorByFields, year, month)
+  const cardGroups: PivotCardGroup[] = cardTxResult.status === 'ok'
+    ? buildCardGroups(cardTxResult.data, matchMap, resolveVendorByFields, year, month)
     : [];
 
   return (
@@ -607,8 +433,13 @@ export default async function CashflowPage({ searchParams }: Props) {
             &nbsp;&nbsp;
             <span className="amt-expense">▼ 지출 (빨강)</span>
           </p>
-          <PivotTable rows={pivotRows} daysInMonth={daysInMonth} year={year} month={month} />
-          <CardExpenseSection groups={cardGroups} cashflowLabel={label} />
+          <PivotTable
+            rows={pivotRows}
+            cardGroups={cardGroups}
+            daysInMonth={daysInMonth}
+            year={year}
+            month={month}
+          />
         </>
       )}
     </div>

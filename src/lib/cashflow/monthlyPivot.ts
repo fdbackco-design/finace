@@ -27,6 +27,7 @@ export type CashflowMonthlyRow = {
   total: number;              // 순합계: 양수=수입, 음수=지출
   days: Record<number, number>; // day → 순금액
   rawEntryIds: string[];
+  cardKey?: string;           // 카드 행 전용 ('feedback:CARD_IBK' 등)
 };
 
 // ── 매핑 상수 ─────────────────────────────────────────────────────────────────
@@ -114,6 +115,7 @@ export function buildMonthlyPivot(
         check:      COMPANY_LABEL[e.company_code] ?? e.company_code,
         category:   '미지급금',
         vendorName: label,
+        cardKey:    ck,
       });
       addToRow(row, payDay, net, e.id); // net < 0 (expense)
 
