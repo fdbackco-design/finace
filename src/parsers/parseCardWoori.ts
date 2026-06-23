@@ -92,9 +92,7 @@ export function parseCardWoori(
       const usedAt          = parseWooriDate(dateStr, year);
       const cardNo          = cardLast4 ? `****-****-****-${cardLast4}` : '';
 
-      // 결제일: 사용일 기준 계산 (1~5일: 당월 20일, 6~31일: 익월 20일)
-      const usedDate       = usedAt.substring(0, 10);
-      const paymentDueDate = usedDate ? calcCardPaymentDueDate(usedDate) : '';
+      const usedDate = usedAt.substring(0, 10);
 
       // 이용카드 식별값(cardLast4)으로 분류: 9727=피드백, 6313=상생
       const classification = classifyCard({ source: 'CARD_WOORI', cardRef: cardLast4, cardNo });
@@ -104,6 +102,10 @@ export function parseCardWoori(
         classification?.companyName === '피드백' ? 'feedback'  :
         classification?.companyName === '상생'   ? 'sangsaeng' :
         company;
+
+      // 결제일: 카드별 납부일/마감일 기준 계산
+      const cardKey        = `${effectiveCompany}:CARD_WOORI`;
+      const paymentDueDate = usedDate ? calcCardPaymentDueDate(usedDate, cardKey) : '';
 
       records.push({
         company: effectiveCompany,

@@ -1,3 +1,5 @@
+import { CARD_SETTLEMENT_CONFIG } from '@/src/lib/cards/settlement';
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type DbEntry = {
@@ -29,15 +31,10 @@ export type CashflowMonthlyRow = {
 
 // ── 매핑 상수 ─────────────────────────────────────────────────────────────────
 
-// 카드 결제 예정일 (회사:카드종류 → 결제일)
-const CARD_PAYMENT_DAY: Record<string, number> = {
-  'feedback:CARD_IBK':    21,
-  'feedback:CARD_WOORI':  20,
-  'sangsaeng:CARD_IBK':   25,
-  'sangsaeng:CARD_WOORI': 17,
-  'shootmoon:CARD_IBK':   21,
-  'shootmoon:CARD_WOORI': 20,
-};
+// 카드 결제 예정일 (회사:카드종류 → 결제일) — CARD_SETTLEMENT_CONFIG 에서 파생
+const CARD_PAYMENT_DAY: Record<string, number> = Object.fromEntries(
+  Object.entries(CARD_SETTLEMENT_CONFIG).map(([k, v]) => [k, v.paymentDay])
+);
 
 // 카드 결제 행 거래처 이름
 const CARD_VENDOR_LABEL: Record<string, string> = {

@@ -15,7 +15,8 @@ import {
   type CardLabel,
 } from '@/src/lib/cards/classifyCard';
 import {
-  getCardSettlementPeriod,
+  getCardPeriod,
+  getWidestCardDateRange,
   type CardSettlementPeriod,
 } from '@/src/lib/cards/settlement';
 import {
@@ -224,6 +225,8 @@ type CardTxDetail = {
 
 type CardExpenseGroup = {
   label:          CardLabel;
+  cardKey:        string;   // 'feedback:CARD_IBK' 등
+  period:         CardSettlementPeriod;
   totalAmount:    number;  // 전체 사용액 (홈택스 매칭 포함)
   htMatchedTotal: number;  // 홈택스 매입으로 반영된 금액
   transactions:   CardTxDetail[];
@@ -233,12 +236,22 @@ const VALID_CARD_LABELS = new Set<string>([
   '상생 우리카드', '상생 기업카드', '피드백 우리카드', '피드백 기업카드',
 ]);
 
+function cardLabelToKey(label: CardLabel): string {
+  if (label === '피드백 기업카드') return 'feedback:CARD_IBK';
+  if (label === '피드백 우리카드') return 'feedback:CARD_WOORI';
+  if (label === '상생 기업카드')   return 'sangsaeng:CARD_IBK';
+  if (label === '상생 우리카드')   return 'sangsaeng:CARD_WOORI';
+  return '';
+}
+
 // ── 카드 지출 그룹 빌더 ───────────────────────────────────────────────────────
 
 function buildCardExpenseGroups(
   rows:     CardTxRow[],
   matchMap: Map<string, CardMatchRow>,
   resolveVendor: (vendorName: string, hometaxInvoiceId: string | null) => string,
+  year: number,
+  month: number,
 ): CardExpenseGroup[] {
   const map = new Map<CardLabel, CardExpenseGroup>();
 
@@ -249,8 +262,14 @@ function buildCardExpenseGroups(
         : cardLabelFromEntry(c.company_code, c.source_type));
     if (!label) continue;
 
+    const cardKey = cardLabelToKey(label);
+    const period  = getCardPeriod(cardKey, year, month);
+
+    // 이 카드의 사용기간 범위 내 거래만 포함
+    if (c.used_date && (c.used_date < period.usedDateFrom || c.used_date > period.usedDateTo)) continue;
+
     if (!map.has(label)) {
-      map.set(label, { label, totalAmount: 0, htMatchedTotal: 0, transactions: [] });
+      map.set(label, { label, cardKey, period, totalAmount: 0, htMatchedTotal: 0, transactions: [] });
     }
     const g = map.get(label)!;
     g.totalAmount += c.amount;
@@ -282,11 +301,9 @@ function buildCardExpenseGroups(
 
 function CardExpenseSection({
   groups,
-  period,
   cashflowLabel,
 }: {
   groups: CardExpenseGroup[];
-  period: CardSettlementPeriod;
   cashflowLabel: string;
 }) {
   if (groups.length === 0) return null;
@@ -300,24 +317,10 @@ function CardExpenseSection({
   return (
     <div className="card-expense-section">
       <h2>카드 지출 상세</h2>
-      <div className="card-settlement-info">
-        <span>결제일: <strong>{period.settlementDate}</strong></span>
-        <span style={{ margin: '0 12px' }}>·</span>
-        <span>사용기간: <strong>{period.usedDateFrom} ~ {period.usedDateTo}</strong></span>
-        <p style={{ marginTop: 4, color: '#64748b', fontSize: 12 }}>
-          ※ 해당 카드 사용액은 {cashflowLabel} 자금수지현황의 카드 결제 예정액입니다.
-        </p>
-        {hasHtMatch && (
-          <p style={{ marginTop: 2, color: '#64748b', fontSize: 12 }}>
-            ※ 홈택스 계산서와 매칭된 카드 거래는 계산서 작성일 기준으로 자금수지현황에 반영됩니다.
-          </p>
-        )}
-        {hasHtMatch && (
-          <p style={{ marginTop: 2, color: '#64748b', fontSize: 12 }}>
-            ※ 계산서와 매칭되지 않은 카드 거래는 카드 결제일 기준으로 반영됩니다.
-          </p>
-        )}
-      </div>
+      <p style={{ marginTop: 4, color: '#64748b', fontSize: 12, marginBottom: 8 }}>
+        ※ 해당 카드 사용액은 {cashflowLabel} 자금수지현황의 카드 결제 예정액입니다.
+        {hasHtMatch && ' 홈택스 계산서 매칭 거래는 계산서 작성일 기준으로 반영됩니다.'}
+      </p>
       {groups.map(g => (
         <details key={g.label} className="card-group">
           <summary>
@@ -329,6 +332,9 @@ function CardExpenseSection({
                   &nbsp;(이 중 {fmtKrw(g.htMatchedTotal)} 계산서 반영)
                 </span>
               )}
+            </span>
+            <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 12 }}>
+              결제일 {g.period.settlementDate.slice(5)} · 사용기간 {g.period.usedDateFrom.slice(5)} ~ {g.period.usedDateTo.slice(5)}
             </span>
           </summary>
           <div className="card-group-body">
@@ -514,17 +520,17 @@ export default async function CashflowPage({ searchParams }: Props) {
       fcAliasByVendorName,
     );
 
-  // 카드 결제 대상 기간: 전월 6일 ~ 당월 5일 사용분 → 당월 20일 결제
-  // (우리카드·기업카드 동일 기준, entry_date 대신 used_date 기준으로 직접 조회)
-  const settlementPeriod = getCardSettlementPeriod(year, month);
+  // 카드 결제 대상 기간: 카드별 사용기간이 다르므로 가장 넓은 범위로 한 번에 조회
+  // 각 카드 그룹에서 해당 카드의 실제 기간으로 재필터링
+  const cardRange = getWidestCardDateRange(year, month);
   const cardTxResult = await fetchTable<CardTxRow>(
     'card_transactions',
     (client) =>
       client
         .from('card_transactions')
         .select('id,used_date,merchant_name,amount,card_label,company_code,source_type')
-        .gte('used_date', settlementPeriod.usedDateFrom)
-        .lte('used_date', settlementPeriod.usedDateTo)
+        .gte('used_date', cardRange.from)
+        .lte('used_date', cardRange.to)
         .eq('is_cancelled', false)
         .gt('amount', 0) as any,
   );
@@ -556,7 +562,7 @@ export default async function CashflowPage({ searchParams }: Props) {
   }
 
   const cardGroups = cardTxResult.status === 'ok'
-    ? buildCardExpenseGroups(cardTxResult.data, matchMap, resolveVendorByFields)
+    ? buildCardExpenseGroups(cardTxResult.data, matchMap, resolveVendorByFields, year, month)
     : [];
 
   return (
@@ -602,7 +608,7 @@ export default async function CashflowPage({ searchParams }: Props) {
             <span className="amt-expense">▼ 지출 (빨강)</span>
           </p>
           <PivotTable rows={pivotRows} daysInMonth={daysInMonth} year={year} month={month} />
-          <CardExpenseSection groups={cardGroups} period={settlementPeriod} cashflowLabel={label} />
+          <CardExpenseSection groups={cardGroups} cashflowLabel={label} />
         </>
       )}
     </div>

@@ -41,15 +41,15 @@ export function parseCardIbk(
       const approvalNumber  = String(row[14] ?? '');
       const cancelledAmount = parseAmount(row[17]);
 
-      // 결제일: 사용일 기준 계산 (1~5일: 당월 20일, 6~31일: 익월 20일)
-      // Excel U열(idx20) 결제예정일 대신 통일 규칙 적용
-      const paymentDueDate = dp ? calcCardPaymentDueDate(dp) : '';
-
       const businessNo = String(row[21] ?? '');
       const usageType  = String(row[2] ?? '');
       const domesticOrForeign = usageType.includes('해외') ? '해외' : '국내';
 
       const classification = classifyCard({ source: 'CARD_IBK', cardNo });
+
+      // 결제일: 카드별 납부일/마감일 기준 계산
+      const cardKey        = `${company}:CARD_IBK`;
+      const paymentDueDate = dp ? calcCardPaymentDueDate(dp, cardKey) : '';
 
       records.push({
         company,
