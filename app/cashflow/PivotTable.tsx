@@ -384,6 +384,10 @@ export default function PivotTable({
   const [completeModal, setCompleteModal] = useState(false);
   const [isPending, startTransition]      = useTransition();
 
+  // 그룹명 인라인 편집 상태
+  const [editingGroupId,   setEditingGroupId]   = useState<string | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState('');
+
   // ── 드래그 스크롤 ────────────────────────────────────────────────────────
   const wrapRef  = useRef<HTMLDivElement>(null);
   const dragRef  = useRef<{ active: boolean; startX: number; scrollLeft: number }>({
@@ -559,6 +563,24 @@ export default function PivotTable({
       setSelected(new Set());
     });
   }, [localRows, selected]);
+
+  // ── 그룹명 수정 ──────────────────────────────────────────────────────────
+
+  const handleGroupRename = useCallback((groupId: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) { setEditingGroupId(null); return; }
+    startTransition(async () => {
+      await fetch('/api/cashflow/groups', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: groupId, group_name: trimmed }),
+      });
+      setLocalRows(prev =>
+        prev.map(r => r.groupId === groupId ? { ...r, groupName: trimmed } : r)
+      );
+      setEditingGroupId(null);
+    });
+  }, []);
 
   // ── 매칭 완료 처리 ───────────────────────────────────────────────────────
 
@@ -820,8 +842,34 @@ export default function PivotTable({
                               </button>
                             </td>
                             <td colSpan={2} className="group-name-cell">
-                              {gm.name}
-                              <span className="group-meta">&nbsp;·&nbsp;{gm.memberCount}건</span>
+                              {editingGroupId === row.groupId ? (
+                                <input
+                                  className="group-name-input"
+                                  value={editingGroupName}
+                                  autoFocus
+                                  onChange={e => setEditingGroupName(e.target.value)}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter')  handleGroupRename(row.groupId!, editingGroupName);
+                                    if (e.key === 'Escape') setEditingGroupId(null);
+                                  }}
+                                  onBlur={() => handleGroupRename(row.groupId!, editingGroupName)}
+                                  onClick={e => e.stopPropagation()}
+                                />
+                              ) : (
+                                <>
+                                  <span
+                                    className="group-name-text"
+                                    onDoubleClick={() => {
+                                      setEditingGroupId(row.groupId!);
+                                      setEditingGroupName(gm.name);
+                                    }}
+                                    title="더블 클릭하여 그룹명 수정"
+                                  >
+                                    {gm.name}
+                                  </span>
+                                  <span className="group-meta">&nbsp;·&nbsp;{gm.memberCount}건</span>
+                                </>
+                              )}
                             </td>
                             <td className={`sticky-col-4 num ${totFmt.cls}`}>{totFmt.text}</td>
                             <td colSpan={daysInMonth} />
@@ -923,6 +971,9 @@ export default function PivotTable({
         .pivot-group-row td { padding: 6px 8px; }
         .group-toggle-btn { background: none; border: none; cursor: pointer; font-size: 13px; padding: 0 4px; }
         .group-name-cell { font-size: 13px; }
+        .group-name-text { cursor: pointer; }
+        .group-name-text:hover { text-decoration: underline; color: #7c3aed; }
+        .group-name-input { font-size: 13px; font-weight: 600; padding: 2px 6px; border: 1px solid #7c3aed; border-radius: 4px; outline: none; min-width: 120px; box-shadow: 0 0 0 2px rgba(124,58,237,.15); }
         .group-meta { font-size: 11px; color: #64748b; font-weight: 400; }
         /* 모달 */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; display: flex; align-items: center; justify-content: center; }
