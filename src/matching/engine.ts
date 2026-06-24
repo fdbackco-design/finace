@@ -138,14 +138,14 @@ export class MatchingEngine {
         );
         if (!matched) continue;
 
-        // Amount score (fixed costs may have variable amounts)
-        let score = 0.7;
+        // 업체명/계좌번호가 일치하면 금액 무관하게 자동매칭 (score >= 0.9 → AUTO)
+        // 금액까지 일치하면 신뢰도를 더 높임
+        let score = 0.9;
         if (fc.amount > 0) {
           const diff = Math.abs(fc.amount - b.withdrawAmount) / fc.amount;
-          if (diff < 0.01) score = 0.95;
-          else if (diff < 0.1)  score = 0.8;
-          else if (diff < 0.3)  score = 0.7;
-          else score = 0.5; // amount mismatch — maybe variable
+          if (diff < 0.01) score = 0.98;  // 금액 정확 일치
+          else if (diff < 0.1) score = 0.93;  // 금액 근사
+          // diff >= 10%: 업체/계좌 일치만으로 0.9 유지 (AUTO)
         }
 
         if (score > bestScore) {
