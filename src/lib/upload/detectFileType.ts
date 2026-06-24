@@ -18,6 +18,24 @@ function norm(s: string): string {
   return s.normalize('NFC').toLowerCase().replace(/[\s_\-()（）\[\]]/g, '');
 }
 
+/**
+ * IBK 은행 파일 헤더 셀(A:M2, row index 1)에서 "예금주명:" 값을 추출한다.
+ * 셀은 멀티라인 텍스트이며 "예금주명:(주)피드백" 또는 "예금주명:주식회사 상생" 형태.
+ */
+function extractAccountHolder(rows: unknown[][]): string | null {
+  // 앞 4행의 모든 셀을 검사 (위치 이동에 대비)
+  for (let r = 0; r < Math.min(4, rows.length); r++) {
+    for (let c = 0; c < Math.min(4, (rows[r] as unknown[]).length); c++) {
+      const cell = String(rows[r]?.[c] ?? '');
+      const match = cell.match(/예금주명\s*[:：]\s*([^\n\r\t]+)/);
+      if (match) {
+        return match[1].trim();
+      }
+    }
+  }
+  return null;
+}
+
 /** Excel A5 = row index 4, col 0 — 홈택스 제목행 */
 function hometaxTitleFromA5(rows: unknown[][]): string {
   const raw = rows[4]?.[0];
@@ -68,16 +86,38 @@ export function detectFileType(
   const hometaxFromA5 = detectHometaxFromTitle(a5Title);
 
   // ── 회사 감지 ───────────────────────────────────────────────────────────────
-  for (const [code, kws] of Object.entries(COMPANY_KEYWORDS)) {
-    for (const kw of kws) {
-      if (fnNorm.includes(norm(kw)) || content.includes(norm(kw))) {
-        companyCode = code as CompanyCode;
-        reasons.push(`회사 감지: "${kw}"`);
-        break;
+
+  // 1순위: IBK 은행 파일 A:M2 합병 셀에서 "예금주명:" 추출
+  const accountHolder = extractAccountHolder(firstSheetRows);
+  if (accountHolder) {
+    const holderNorm = norm(accountHolder);
+    for (const [code, kws] of Object.entries(COMPANY_KEYWORDS)) {
+      for (const kw of kws) {
+        if (holderNorm.includes(norm(kw))) {
+          companyCode = code as CompanyCode;
+          reasons.push(`예금주명 감지: "${accountHolder}" → ${code}`);
+          break;
+        }
       }
+      if (companyCode) break;
     }
-    if (companyCode) break;
   }
+
+  // 2순위: 파일명 + 앞 8행 내용 전체 키워드 탐색
+  if (!companyCode) {
+    const extendedContent = [fnNorm, content].join(' ');
+    for (const [code, kws] of Object.entries(COMPANY_KEYWORDS)) {
+      for (const kw of kws) {
+        if (extendedContent.includes(norm(kw))) {
+          companyCode = code as CompanyCode;
+          reasons.push(`회사 감지: "${kw}"`);
+          break;
+        }
+      }
+      if (companyCode) break;
+    }
+  }
+
   if (!companyCode && fallbackCompany) {
     companyCode = fallbackCompany;
     reasons.push(`회사 수동 지정: ${fallbackCompany}`);
