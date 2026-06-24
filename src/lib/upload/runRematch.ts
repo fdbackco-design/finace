@@ -196,6 +196,14 @@ export async function runRematch(month: string): Promise<RematchResult> {
   );
   engine.run();
 
+  // 엔진 내부 ID → DB UUID 맵
+  const bankDbIdMap: Record<string, string> = {};
+  const cardDbIdMap: Record<string, string> = {};
+  const htDbIdMap:   Record<string, string> = {};
+  bankRows.forEach((r, i) => { bankDbIdMap[`bank_${i}`] = r.id; });
+  cardRows.forEach((r, i) => { cardDbIdMap[`card_${i}`] = r.id; });
+  htRows.forEach((r, i)   => { htDbIdMap[`ht_${i}`]     = r.id; });
+
   // ── 등록 거래처 기반 AUTO_MATCHED 승격 ─────────────────────────────────────
   // MANUAL_REVIEW이지만 금액 매칭 완료 + 거래처가 vendors 테이블에 등록된 경우 AUTO_MATCHED로 승격.
   // 은행 거래 설명란에 거래처명이 없어 vendorScore가 낮아도 등록으로 신원 확인된 것으로 간주.
@@ -205,7 +213,6 @@ export async function runRematch(month: string): Promise<RematchResult> {
       .select('vendor_name, vendor_aliases(business_number)');
 
     if (vendorData && vendorData.length > 0) {
-      // 등록된 거래처명(공백 제거) Set + 사업자번호 Set
       type VendorInfo = { normName: string; bizNos: Set<string> };
       const registeredVendors: VendorInfo[] = (vendorData as any[]).map(v => ({
         normName: (v.vendor_name ?? '').replace(/\s/g, '').toLowerCase(),
@@ -216,14 +223,13 @@ export async function runRematch(month: string): Promise<RematchResult> {
         ),
       }));
 
-      // HT DB UUID → 사업자번호 맵 (매입: vendor_business_no)
       const htBizNoMap = new Map<string, string>();
       htRows.forEach(r => {
         const biz = (r.vendor_business_no ?? '').replace(/\D/g, '');
         if (biz.length >= 8) htBizNoMap.set(r.id, biz);
       });
 
-      function isRegisteredVendor(vendorName: string, htDbId: string | null): boolean {
+      const isRegisteredVendor = (vendorName: string, htDbId: string | null): boolean => {
         const normName = vendorName.replace(/\s/g, '').toLowerCase();
         const bizNo    = htDbId ? (htBizNoMap.get(htDbId) ?? '') : '';
         for (const rv of registeredVendors) {
@@ -232,7 +238,7 @@ export async function runRematch(month: string): Promise<RematchResult> {
               (normName.includes(rv.normName) || rv.normName.includes(normName))) return true;
         }
         return false;
-      }
+      };
 
       for (const e of engine.cashflow) {
         if (e.matchStatus !== 'MANUAL_REVIEW') continue;
@@ -241,8 +247,7 @@ export async function runRematch(month: string): Promise<RematchResult> {
 
         const htDbId = htDbIdMap[e.hometaxInvoiceId] ?? null;
         if (isRegisteredVendor(e.vendorName, htDbId)) {
-          e.matchStatus  = 'AUTO_MATCHED';
-          // 금액일치가 매칭근거에 있으면 전액 처리로 amountStatus 갱신
+          e.matchStatus = 'AUTO_MATCHED';
           if (e.amountStatus === '매칭 필요') {
             e.amountStatus = e.sourceType === 'HT_SALES_TAX' ? '입금 완료' : '지급 완료';
           }
@@ -252,14 +257,6 @@ export async function runRematch(month: string): Promise<RematchResult> {
   } catch (upgradeErr) {
     errors.push(`vendor 승격 오류: ${upgradeErr}`);
   }
-
-  // 엔진 내부 ID → DB UUID 맵
-  const bankDbIdMap: Record<string, string> = {};
-  const cardDbIdMap: Record<string, string> = {};
-  const htDbIdMap:   Record<string, string> = {};
-  bankRows.forEach((r, i) => { bankDbIdMap[`bank_${i}`] = r.id; });
-  cardRows.forEach((r, i) => { cardDbIdMap[`card_${i}`] = r.id; });
-  htRows.forEach((r, i)   => { htDbIdMap[`ht_${i}`]     = r.id; });
 
   // ── 급여 그룹 upsert (cashflow_groups) ─────────────────────────────────────
   // e.groupName이 설정된 항목은 cashflow_groups 레코드를 찾거나 생성해 UUID를 매핑한다.
