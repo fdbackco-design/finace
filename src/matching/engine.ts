@@ -263,8 +263,10 @@ export class MatchingEngine {
       // AUTO_MATCHED needs either vendor similarity > 0.3 OR only 1 candidate with high score
       const dupScores    = candidates.filter(c => c.score >= top.score - 0.05);
       const vendorHit    = top.reason.includes('거래처유사') && !top.reason.includes('거래처미확인');
+      // 동점 후보가 여럿이어도 모두 완전히 같은 점수(동일 거래)면 AUTO — 순차 소비로 N:N 해소
+      const allTied      = dupScores.every(c => Math.abs(c.score - top.score) < 0.001);
       // Require vendor match for AUTO; pure amount+date match alone → MANUAL_REVIEW
-      const isAutoMatch  = top.score >= 0.75 && dupScores.length === 1 && vendorHit;
+      const isAutoMatch  = top.score >= 0.75 && vendorHit && (dupScores.length === 1 || allTied);
       const status: MatchStatus = isAutoMatch ? 'AUTO_MATCHED' : 'MANUAL_REVIEW';
 
       // Mark as used
@@ -359,7 +361,9 @@ export class MatchingEngine {
       const top = candidates[0];
       const dupScores2   = candidates.filter(c => c.score >= top.score - 0.05);
       const vendorHit2   = top.reason.includes('거래처유사') && !top.reason.includes('거래처미확인');
-      const isAuto2      = top.score >= 0.75 && dupScores2.length === 1 && vendorHit2;
+      // 동점 후보가 여럿이어도 모두 완전히 같은 점수(동일 거래)면 AUTO — 순차 소비로 N:N 해소
+      const allTied2     = dupScores2.every(c => Math.abs(c.score - top.score) < 0.001);
+      const isAuto2      = top.score >= 0.75 && vendorHit2 && (dupScores2.length === 1 || allTied2);
       const status: MatchStatus = isAuto2 ? 'AUTO_MATCHED' : 'MANUAL_REVIEW';
 
       this.usedHtIds.add(ht._id);
