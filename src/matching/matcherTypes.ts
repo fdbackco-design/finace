@@ -53,6 +53,7 @@ export interface CashflowEntry {
   showInCashflow?: boolean;     // 자금수지현황표 표시 여부
   categoryAuto?: string;        // 자동 구분
   classificationBasis?: string; // 분류 근거
+  groupName?: string;           // 자동 그룹명 (급여 등) — runRematch에서 cashflow_groups UUID로 변환
 }
 
 export interface MatchedPair {

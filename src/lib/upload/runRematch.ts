@@ -204,6 +204,43 @@ export async function runRematch(month: string): Promise<RematchResult> {
   cardRows.forEach((r, i) => { cardDbIdMap[`card_${i}`] = r.id; });
   htRows.forEach((r, i)   => { htDbIdMap[`ht_${i}`]     = r.id; });
 
+  // ── 급여 그룹 upsert (cashflow_groups) ─────────────────────────────────────
+  // e.groupName이 설정된 항목은 cashflow_groups 레코드를 찾거나 생성해 UUID를 매핑한다.
+  const gkOf = (e: { company: string; date: string; groupName?: string }) =>
+    `${e.company}||${e.date.substring(0, 7)}||${e.groupName}`;
+  const salaryEntries = engine.cashflow.filter(e => e.groupName);
+  const groupIdMap = new Map<string, string>();   // groupKey → cashflow_groups UUID
+
+  const uniqueGroupKeys = [...new Set(salaryEntries.map(gkOf))];
+  for (const gk of uniqueGroupKeys) {
+    const [company, mo, groupName] = gk.split('||');
+    // 기존 그룹 재사용
+    const { data: existing } = await (client as any)
+      .from('cashflow_groups')
+      .select('id')
+      .eq('company_code', company)
+      .eq('month', mo)
+      .eq('group_name', groupName)
+      .maybeSingle();
+
+    if (existing?.id) {
+      groupIdMap.set(gk, existing.id);
+    } else {
+      const { data: inserted, error: gErr } = await (client as any)
+        .from('cashflow_groups')
+        .insert({ company_code: company, month: mo, group_name: groupName, created_by: 'auto' })
+        .select('id')
+        .single();
+      if (!gErr && inserted?.id) {
+        groupIdMap.set(gk, inserted.id);
+      } else if (gErr) {
+        errors.push(`cashflow_groups insert(${groupName}): ${gErr.message}`);
+      }
+    }
+  }
+  // 그룹 내 순서 카운터
+  const groupOrderCounter = new Map<string, number>();
+
   // ── 기존 자동 생성 항목 삭제 (USER_EDITED / USER_CONFIRMED 제외) ───────────
   // 이번에 처리할 원천 트랜잭션과 연결된 cashflow_entries만 삭제
   const PRESERVED = ['USER_EDITED', 'USER_CONFIRMED'];
@@ -239,6 +276,16 @@ export async function runRematch(month: string): Promise<RematchResult> {
     const cardDbId = e.cardTransactionId ? (cardDbIdMap[e.cardTransactionId] ?? null) : null;
     const htDbId   = e.hometaxInvoiceId  ? (htDbIdMap[e.hometaxInvoiceId]   ?? null) : null;
 
+    // 급여 그룹 처리
+    const gk        = e.groupName ? gkOf(e) : null;
+    const groupDbId = gk ? (groupIdMap.get(gk) ?? null) : null;
+    let   groupOrder = 0;
+    if (gk) {
+      const cnt = groupOrderCounter.get(gk) ?? 0;
+      groupOrderCounter.set(gk, cnt + 1);
+      groupOrder = cnt;
+    }
+
     cfRows.push({
       company_id:           companyMap[e.company]         ?? null,
       company_code:         e.company,
@@ -262,6 +309,9 @@ export async function runRematch(month: string): Promise<RematchResult> {
       remaining_amount:     e.remainingAmount             ?? 0,
       actual_date:          e.actualDate                  ?? null,
       show_in_cashflow:     e.showInCashflow              ?? true,
+      group_id:             groupDbId,
+      group_name:           e.groupName                   ?? null,
+      group_order:          groupOrder,
     });
   }
 

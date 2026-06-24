@@ -82,7 +82,50 @@ export class MatchingEngine {
     this.step3_htPurchase();   // HT first — so fixed cost doesn't consume same bank tx
     this.step4_htSales();
     this.step2_fixedCosts();   // Fixed cost enriches remaining unmatched bank withdrawals
+    this.stepSalary();         // 급여 키워드 은행 출금 자동 그룹화
     this.step5_remaining();
+  }
+
+  private static readonly COMPANY_KO: Record<string, string> = {
+    feedback: '피드백', sangsaeng: '상생', shootmoon: '슛문',
+  };
+
+  // ── 급여 자동 감지: 잔여 출금 중 description/counterAccountName/memo에 '급여' 포함 ──
+  private stepSalary() {
+    for (const b of this.banks) {
+      if (this.usedBankIds.has(b._id)) continue;
+      if (b.withdrawAmount <= 0) continue;
+
+      const isSalary = [b.description, b.counterAccountName, b.memo]
+        .some(s => s && s.includes('급여'));
+      if (!isSalary) continue;
+
+      this.usedBankIds.add(b._id);
+
+      const companyLabel = MatchingEngine.COMPANY_KO[b.company] ?? b.company;
+      const groupName    = `${companyLabel} 급여`;
+
+      this.cashflow.push({
+        id:                makeId('cf'),
+        company:           b.company,
+        date:              b.transactionDate,
+        vendorName:        b.counterAccountName || b.description || '급여',
+        category:          '급여',
+        subCategory:       '급여',
+        incomeAmount:      0,
+        expenseAmount:     b.withdrawAmount,
+        sourceType:        b.sourceType,
+        paymentSourceType: b.sourceType,
+        matchStatus:       'AUTO_MATCHED',
+        matchReason:       '급여_keyword',
+        hometaxInvoiceId:  '',
+        bankTransactionId: b._id,
+        cardTransactionId: '',
+        fixedCostId:       '',
+        groupName,
+        showInCashflow:    true,
+      });
+    }
   }
 
   // ── Step 1: 가수금 (피드백 BANK_IBK 입금 중 송해민/손성훈) ──────────────
