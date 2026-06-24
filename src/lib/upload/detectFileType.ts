@@ -24,10 +24,11 @@ function norm(s: string): string {
  */
 function extractAccountHolder(rows: unknown[][]): string | null {
   // 앞 4행의 모든 셀을 검사 (위치 이동에 대비)
+  // IBK: "예금주명:주식회사 상생", Woori: "예금주 : (주)상생" — 둘 다 처리
   for (let r = 0; r < Math.min(4, rows.length); r++) {
     for (let c = 0; c < Math.min(4, (rows[r] as unknown[]).length); c++) {
       const cell = String(rows[r]?.[c] ?? '');
-      const match = cell.match(/예금주명\s*[:：]\s*([^\n\r\t]+)/);
+      const match = cell.match(/예금주명?\s*[:：]\s*([^\n\r\t]+)/);
       if (match) {
         return match[1].trim();
       }
@@ -125,8 +126,21 @@ export function detectFileType(
 
   // ── sourceType 감지 ─────────────────────────────────────────────────────────
 
-  // BANK_IBK: "거래내역조회" 파일명 or 헤더에 거래일시+출금액+입금액
+  // BANK_WOORI: IBK보다 먼저 검사 — 우리은행도 "거래일시"+"잔액"을 가지므로
+  // IBK check가 먼저 실행되면 우리은행 파일이 BANK_IBK로 오감지됨.
+  // 우리은행 구분자: "입금금액"/"출금금액" (IBK는 "입금액"/"출금액" 단형)
   if (
+    (fnNorm.includes('우리') && (fnNorm.includes('거래') || fnNorm.includes('이체'))) ||
+    hasAll(content, '거래일자', '입금금액', '출금금액') ||
+    hasAll(content, '거래일자', '거래후잔액') ||
+    hasAll(content, '거래일시', '입금금액', '출금금액')
+  ) {
+    sourceType = 'BANK_WOORI';
+    confidence = 0.92;
+    reasons.push('BANK_WOORI: 파일명(우리+거래) 또는 헤더(입금금액,출금금액)');
+  }
+  // BANK_IBK: "거래내역조회" 파일명 or 헤더에 거래일시+출금액+입금액
+  else if (
     fnNorm.includes('거래내역조회') || fnNorm.includes('입출식예금') ||
     hasAll(content, '거래일시', '출금액', '입금액') ||
     hasAll(content, '거래일시', '잔액')
@@ -134,16 +148,6 @@ export function detectFileType(
     sourceType = 'BANK_IBK';
     confidence = 0.92;
     reasons.push('BANK_IBK: 파일명(거래내역조회) 또는 헤더(거래일시,출금액,입금액)');
-  }
-  // BANK_WOORI: 우리 관련 파일명 or 헤더
-  else if (
-    (fnNorm.includes('우리') && (fnNorm.includes('거래') || fnNorm.includes('이체'))) ||
-    hasAll(content, '거래일자', '입금금액', '출금금액') ||
-    hasAll(content, '거래일자', '거래후잔액')
-  ) {
-    sourceType = 'BANK_WOORI';
-    confidence = 0.92;
-    reasons.push('BANK_WOORI: 파일명(우리+거래) 또는 헤더(거래일자,입금금액,출금금액)');
   }
   // CARD_IBK: 기업카드 파일명 or 헤더에 결제예정일자
   else if (

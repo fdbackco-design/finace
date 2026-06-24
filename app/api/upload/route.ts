@@ -223,17 +223,19 @@ function getAffectedMonths(
   hts:   HometaxInvoice[],
 ): string[] {
   const months = new Set<string>();
+  // 날짜가 "YYYY.MM.DD" 형식일 경우 점을 대시로 정규화해 "YYYY-MM"을 보장
+  const toMonth = (d?: string) => d?.substring(0, 7).replace(/\./g, '-');
   for (const b of banks) {
-    const m = b.transactionDate?.substring(0, 7);
-    if (m) months.add(m);
+    const m = toMonth(b.transactionDate);
+    if (m && /^\d{4}-\d{2}$/.test(m)) months.add(m);
   }
   for (const c of cards) {
-    const m = c.usedAt?.substring(0, 7) ?? c.paymentDueDate?.substring(0, 7);
-    if (m) months.add(m);
+    const m = toMonth(c.usedAt) ?? toMonth(c.paymentDueDate);
+    if (m && /^\d{4}-\d{2}$/.test(m)) months.add(m);
   }
   for (const h of hts) {
-    const m = (h.writtenDate || h.issuedDate)?.substring(0, 7);
-    if (m) months.add(m);
+    const m = toMonth(h.writtenDate || h.issuedDate);
+    if (m && /^\d{4}-\d{2}$/.test(m)) months.add(m);
   }
   return Array.from(months).sort();
 }

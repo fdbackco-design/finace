@@ -38,7 +38,8 @@ export function parseBankIbk(
 
     try {
       const dtStr          = String(row[1] ?? '');
-      const [date = '', time = ''] = dtStr.split(' ');
+      const [rawDate = '', time = ''] = dtStr.split(' ');
+      const date = rawDate.replace(/\./g, '-'); // "2026.06.10" → "2026-06-10"
       const withdrawAmount = parseAmount(row[2]);
       const depositAmount  = parseAmount(row[3]);
       const balance        = parseAmount(row[4]);
