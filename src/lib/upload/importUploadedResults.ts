@@ -167,8 +167,9 @@ async function upsertWithLinks<T extends object>(
   linkField:    'bank_transaction_id' | 'card_transaction_id' | 'hometax_invoice_id',
   errors:       string[],
   filename:     string,
-): Promise<number> {
+): Promise<{ upserted: number; duplicates: number }> {
   let upserted = 0;
+  let duplicates = 0;
   for (const batch of chunk(entries, 500)) {
     const hashes = batch.map(e => e.hash);
 
@@ -183,6 +184,7 @@ async function upsertWithLinks<T extends object>(
 
     // 신규 행만 INSERT — source_file_id 주입 (기존 행은 절대 덮어쓰지 않음)
     const newEntries = batch.filter(e => !existingMap[e.hash]);
+    duplicates += batch.length - newEntries.length;
     if (newEntries.length > 0) {
       const { data: inserted, error: insertErr } = await client
         .from(tableName)
@@ -221,7 +223,7 @@ async function upsertWithLinks<T extends object>(
       }
     }
   }
-  return upserted;
+  return { upserted, duplicates };
 }
 
 // ── 메인 함수 ─────────────────────────────────────────────────────────────────
@@ -263,6 +265,27 @@ export async function importUploadedResults(
     const fileCompanyId = companyCode ? (companyMap[companyCode] ?? null) : null;
     const fileContentHash = sha256(buffer.toString('binary'));
     const today = new Date().toISOString().split('T')[0];
+    let fileNewCount = 0;
+    let fileDuplicateCount = 0;
+
+    // ── 3a-pre. 동일 file_content_hash 기존 파일 조회 (Storage 중복 방지) ──
+    let existingStoragePath: string | null = null;
+    let duplicateOfId: string | null = null;
+    {
+      const { data: hashMatches } = await (client as any)
+        .from('source_files')
+        .select('id, storage_path, duplicate_of')
+        .eq('file_content_hash', fileContentHash)
+        .not('storage_path', 'is', null)
+        .order('created_at', { ascending: true });
+      if (hashMatches && (hashMatches as any[]).length > 0) {
+        // 대표 원본: duplicate_of=null인 최초 파일 (재업로드 체인 방지)
+        const rep = (hashMatches as any[]).find((r: any) => r.duplicate_of === null)
+          ?? (hashMatches as any[])[0];
+        existingStoragePath = rep.storage_path as string;
+        duplicateOfId       = rep.id as string;
+      }
+    }
 
     // ── 3a. source_files INSERT (status=pending) ───────────────────────────
     let sourceFileId: string | null = null;
@@ -277,12 +300,15 @@ export async function importUploadedResults(
         detected_source_type: detectedSourceType || sourceType,
         file_size_bytes:      buffer.length,
         file_content_hash:    fileContentHash,
+        storage_path:         existingStoragePath,   // 중복 시 기존 경로 선점
+        duplicate_of:         duplicateOfId,         // 대표 원본 id (체인 없이 flat)
         parse_date:           today,
         record_count:         banks.length + cards.length + hts.length,
         status:               'pending',
         parse_warning_count:  parseErrors.length,
         error_row_count:      parseErrors.length,
-        success_row_count:    banks.length + cards.length + hts.length,
+        success_row_count:    0,                     // 실제 INSERT 후 업데이트
+        duplicate_row_count:  0,                     // 실제 중복 집계 후 업데이트
       })
       .select('id');
     if (sfErr) {
@@ -293,26 +319,33 @@ export async function importUploadedResults(
 
     // ── 3b. Storage 업로드 ─────────────────────────────────────────────────
     if (sourceFileId) {
-      const datePart    = new Date().toISOString().slice(0, 7);
-      const company     = companyCode ?? 'unknown';
-      // Storage key는 ASCII-only 필요. 원본 파일명(한글 등)은 source_files.filename에 보존.
-      // 경로: {company}/{YYYY-MM}/{timestamp}_{contentHash앞16자}.{ext}
-      const ext         = filename.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') ?? 'xlsx';
-      const storagePath = `${company}/${datePart}/${Date.now()}_${fileContentHash.slice(0, 16)}.${ext}`;
-
-      const { error: storageErr } = await (client as any).storage
-        .from('finance-raw')
-        .upload(storagePath, buffer, { contentType: 'application/octet-stream', upsert: false });
-
-      if (storageErr) {
-        errors.push(`Storage 업로드 실패 (${filename}): ${storageErr.message}`);
-        await (client as any).from('source_files').update({ status: 'error' }).eq('id', sourceFileId);
-      } else {
+      if (existingStoragePath) {
+        // 동일 file_content_hash → Storage 재업로드 생략, 기존 경로 재사용
         await (client as any).from('source_files').update({
           status:            'storage_uploaded',
-          storage_path:      storagePath,
           storage_mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         }).eq('id', sourceFileId);
+      } else {
+        const datePart    = new Date().toISOString().slice(0, 7);
+        const company     = companyCode ?? 'unknown';
+        // Storage key는 ASCII-only: {company}/{YYYY-MM}/{timestamp}_{hash앞16자}.{ext}
+        const ext         = filename.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') ?? 'xlsx';
+        const storagePath = `${company}/${datePart}/${Date.now()}_${fileContentHash.slice(0, 16)}.${ext}`;
+
+        const { error: storageErr } = await (client as any).storage
+          .from('finance-raw')
+          .upload(storagePath, buffer, { contentType: 'application/octet-stream', upsert: false });
+
+        if (storageErr) {
+          errors.push(`Storage 업로드 실패 (${filename}): ${storageErr.message}`);
+          await (client as any).from('source_files').update({ status: 'error' }).eq('id', sourceFileId);
+        } else {
+          await (client as any).from('source_files').update({
+            status:            'storage_uploaded',
+            storage_path:      storagePath,
+            storage_mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          }).eq('id', sourceFileId);
+        }
       }
     }
 
@@ -347,10 +380,13 @@ export async function importUploadedResults(
           sourceSheetName: b.sourceSheetName,
         };
       });
-      bankUpserted += await upsertWithLinks(
+      const bankResult = await upsertWithLinks(
         client as any, 'bank_transactions', entries, bankIdMap,
         sourceFileId, 'bank_transaction_id', errors, filename,
       );
+      bankUpserted       += bankResult.upserted;
+      fileNewCount       += bankResult.upserted;
+      fileDuplicateCount += bankResult.duplicates;
       globalBankIdx += banks.length;
     }
 
@@ -366,10 +402,13 @@ export async function importUploadedResults(
           sourceSheetName: c.sourceSheetName,
         };
       });
-      cardUpserted += await upsertWithLinks(
+      const cardResult = await upsertWithLinks(
         client as any, 'card_transactions', entries, cardIdMap,
         sourceFileId, 'card_transaction_id', errors, filename,
       );
+      cardUpserted       += cardResult.upserted;
+      fileNewCount       += cardResult.upserted;
+      fileDuplicateCount += cardResult.duplicates;
       globalCardIdx += cards.length;
     }
 
@@ -385,23 +424,30 @@ export async function importUploadedResults(
           sourceSheetName: h.sourceSheetName,
         };
       });
-      htUpserted += await upsertWithLinks(
+      const htResult = await upsertWithLinks(
         client as any, 'hometax_invoices', entries, htIdMap,
         sourceFileId, 'hometax_invoice_id', errors, filename,
       );
+      htUpserted         += htResult.upserted;
+      fileNewCount       += htResult.upserted;
+      fileDuplicateCount += htResult.duplicates;
       globalHtIdx += hts.length;
     }
 
-    // ── 3h. source_files 최종 상태 업데이트 ───────────────────────────────
+    // ── 3h. source_files 최종 상태 업데이트 (실제 집계 반영) ─────────────
     if (sourceFileId) {
       const fileErrors = errors.filter(e => e.includes(filename));
-      const hasData    = banks.length + cards.length + hts.length > 0;
       const finalStatus =
-        fileErrors.length > 0 && !hasData ? 'error' :
-        fileErrors.length > 0 && hasData  ? 'partial' :
-        parseErrors.length > 0 && hasData ? 'partial' :
+        fileErrors.length > 0 && fileNewCount === 0 && fileDuplicateCount === 0 ? 'error' :
+        fileErrors.length > 0                                                   ? 'partial' :
+        parseErrors.length > 0                                                  ? 'partial' :
         'success';
-      await (client as any).from('source_files').update({ status: finalStatus }).eq('id', sourceFileId);
+      await (client as any).from('source_files').update({
+        status:              finalStatus,
+        success_row_count:   fileNewCount,
+        duplicate_row_count: fileDuplicateCount,
+        error_row_count:     parseErrors.length,
+      }).eq('id', sourceFileId);
     }
 
     // ── 3i. finance_audit_logs: IMPORT_COMPLETE ────────────────────────────
