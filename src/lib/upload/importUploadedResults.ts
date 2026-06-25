@@ -295,7 +295,8 @@ export async function importUploadedResults(
     if (sourceFileId) {
       const datePart    = new Date().toISOString().slice(0, 7);
       const company     = companyCode ?? 'unknown';
-      const safeFilename = filename.replace(/\s+/g, '_');
+      // Storage key는 ASCII-safe 필요 — 한글·공백 등 non-ASCII를 encodeURIComponent로 처리
+      const safeFilename = encodeURIComponent(filename);
       const storagePath  = `${company}/${datePart}/${Date.now()}_${safeFilename}`;
 
       const { error: storageErr } = await (client as any).storage
