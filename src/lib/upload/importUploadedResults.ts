@@ -295,9 +295,10 @@ export async function importUploadedResults(
     if (sourceFileId) {
       const datePart    = new Date().toISOString().slice(0, 7);
       const company     = companyCode ?? 'unknown';
-      // Storage key는 ASCII-safe 필요 — 한글·공백 등 non-ASCII를 encodeURIComponent로 처리
-      const safeFilename = encodeURIComponent(filename);
-      const storagePath  = `${company}/${datePart}/${Date.now()}_${safeFilename}`;
+      // Storage key는 ASCII-only 필요. 원본 파일명(한글 등)은 source_files.filename에 보존.
+      // 경로: {company}/{YYYY-MM}/{timestamp}_{contentHash앞16자}.{ext}
+      const ext         = filename.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') ?? 'xlsx';
+      const storagePath = `${company}/${datePart}/${Date.now()}_${fileContentHash.slice(0, 16)}.${ext}`;
 
       const { error: storageErr } = await (client as any).storage
         .from('finance-raw')
