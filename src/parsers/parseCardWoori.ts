@@ -32,9 +32,10 @@ export function parseCardWoori(
   company: CompanyCode,
   filename: string
 ): ParsedFileResult<CardTransaction> {
-  const wb  = XLSX.read(buffer, { type: 'buffer', raw: false });
-  const ws  = wb.Sheets[wb.SheetNames[0]];
-  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) as unknown[][];
+  const wb        = XLSX.read(buffer, { type: 'buffer', raw: false });
+  const sheetName = wb.SheetNames[0];
+  const ws        = wb.Sheets[sheetName];
+  const aoa       = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) as unknown[][];
 
   // R3 (idx 2) B열: 이용기간 — 연도 추출에만 사용 (결제일은 사용일 기준으로 계산)
   const periodStr = String(aoa[2]?.[1] ?? '');
@@ -121,8 +122,10 @@ export function parseCardWoori(
         cancelledAmount,
         domesticOrForeign,
         salesType,
-        cardProvider: classification?.cardProvider ?? null,
-        cardLabel:    classification?.cardLabel    ?? null,
+        cardProvider:    classification?.cardProvider ?? null,
+        cardLabel:       classification?.cardLabel    ?? null,
+        sourceRowNumber: i + 1,
+        sourceSheetName: sheetName,
       });
     } catch (e) {
       errors.push({ file: filename, rowIndex: i, message: String(e), rawData: row as unknown[] });

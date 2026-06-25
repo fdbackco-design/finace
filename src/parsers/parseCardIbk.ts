@@ -14,9 +14,10 @@ export function parseCardIbk(
   company: CompanyCode,
   filename: string
 ): ParsedFileResult<CardTransaction> {
-  const wb  = XLSX.read(buffer, { type: 'buffer', raw: false });
-  const ws  = wb.Sheets[wb.SheetNames[0]];
-  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) as unknown[][];
+  const wb        = XLSX.read(buffer, { type: 'buffer', raw: false });
+  const sheetName = wb.SheetNames[0];
+  const ws        = wb.Sheets[sheetName];
+  const aoa       = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) as unknown[][];
 
   const records: CardTransaction[] = [];
   const errors:  ParseError[]      = [];
@@ -64,9 +65,11 @@ export function parseCardIbk(
         isCancelled,
         cancelledAmount,
         domesticOrForeign,
-        salesType: String(row[10] ?? ''),
+        salesType:    String(row[10] ?? ''),
         cardProvider: classification?.cardProvider ?? null,
         cardLabel:    classification?.cardLabel    ?? null,
+        sourceRowNumber: i + 1,
+        sourceSheetName: sheetName,
       });
     } catch (e) {
       errors.push({ file: filename, rowIndex: i, message: String(e), rawData: row as unknown[] });

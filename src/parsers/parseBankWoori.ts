@@ -12,9 +12,10 @@ export function parseBankWoori(
   company: CompanyCode,
   filename: string
 ): ParsedFileResult<BankTransaction> {
-  const wb  = XLSX.read(buffer, { type: 'buffer', raw: false });
-  const ws  = wb.Sheets[wb.SheetNames[0]];
-  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) as unknown[][];
+  const wb        = XLSX.read(buffer, { type: 'buffer', raw: false });
+  const sheetName = wb.SheetNames[0];
+  const ws        = wb.Sheets[sheetName];
+  const aoa       = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) as unknown[][];
 
   // R2 (idx1): 계좌번호 및 예금주 (모든 셀 동일 내용)
   const meta1Str  = String(aoa[1]?.[0] ?? '');
@@ -62,6 +63,8 @@ export function parseBankWoori(
         counterAccountName: '',
         txType:             branch,
         categoryHint:       '',
+        sourceRowNumber:    i + 1,
+        sourceSheetName:    sheetName,
       });
     } catch (e) {
       errors.push({ file: filename, rowIndex: i, message: String(e), rawData: row as unknown[] });

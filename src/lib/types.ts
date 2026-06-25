@@ -25,6 +25,9 @@ export interface BankTransaction {
   counterAccountName: string;
   txType: string;
   categoryHint: string;        // '가수금' or ''
+  // 원본 추적 (파서에서 설정, DB 저장용)
+  sourceRowNumber?: number;    // 1-based Excel 행 번호 (사용자가 원본에서 직접 찾을 수 있는 번호)
+  sourceSheetName?: string;    // 파싱 대상 시트명
 }
 
 export interface CardTransaction {
@@ -43,6 +46,8 @@ export interface CardTransaction {
   salesType: string;
   cardProvider?: string | null;  // '우리카드' | '기업카드'
   cardLabel?: string | null;     // '상생 우리카드' | '상생 기업카드' | '피드백 우리카드' | '피드백 기업카드'
+  sourceRowNumber?: number;
+  sourceSheetName?: string;
 }
 
 export interface HometaxInvoice {
@@ -63,6 +68,8 @@ export interface HometaxInvoice {
   receiptType: string;            // 영수/청구
   isCancelled: boolean;
   vendorBusinessNo: string;
+  sourceRowNumber?: number;
+  sourceSheetName?: string;
 }
 
 export interface ParseError {

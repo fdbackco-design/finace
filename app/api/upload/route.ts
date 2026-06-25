@@ -23,17 +23,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CompanyCode, SourceType }   from '@/src/lib/types';
 import { parseUploadedFile }          from '@/src/lib/upload/parseUploadedFile';
-import { importUploadedResults }      from '@/src/lib/upload/importUploadedResults';
+import { importUploadedResults, PerFileGroup } from '@/src/lib/upload/importUploadedResults';
 import { runRematch }                 from '@/src/lib/upload/runRematch';
 import type { BankTransaction, CardTransaction, HometaxInvoice } from '@/src/lib/types';
 
 export const dynamic    = 'force-dynamic';
 export const maxDuration = 60; // Vercel Pro 최대 60s
 
-// ── 허용 확장자 ──────────────────────────────────────────────────────────────
-const ALLOWED_EXT = ['.xlsx', '.xls', '.csv'];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const MAX_FILES = 20;
+// ── 허용 확장자 / 크기 제한 ──────────────────────────────────────────────────
+// Vercel Pro body limit: 4.5MB 전체 기준 → 개별 파일 4MB, 전체 합계 4MB 제한
+const ALLOWED_EXT      = ['.xlsx', '.xls', '.csv'];
+const MAX_FILE_SIZE    = 4 * 1024 * 1024;   // 4MB per file
+const MAX_FILES        = 10;
+const TOTAL_SIZE_LIMIT = 4 * 1024 * 1024;   // 4MB total (Vercel body limit 기준)
 
 // ── 응답 타입 ─────────────────────────────────────────────────────────────────
 export type FileUploadResult = {
@@ -98,11 +100,21 @@ export async function POST(req: NextRequest): Promise<NextResponse<UploadApiResp
     return NextResponse.json({ ...empty, month: selectedMonth, error: `파일은 최대 ${MAX_FILES}개까지 허용` }, { status: 400 });
   }
 
-  // ── 파일별 처리 ─────────────────────────────────────────────────────────────
-  const fileResults:  FileUploadResult[]  = [];
-  const allBanks:     BankTransaction[]   = [];
-  const allCards:     CardTransaction[]   = [];
-  const allHts:       HometaxInvoice[]    = [];
+  // ── 전체 크기 사전 검사 (Vercel body limit) ────────────────────────────────
+  const totalSize = rawFiles.reduce((sum, f) => sum + f.size, 0);
+  if (totalSize > TOTAL_SIZE_LIMIT) {
+    return NextResponse.json(
+      { ...empty, month: selectedMonth, error: `업로드 파일 총 크기 초과 (${(totalSize / 1024 / 1024).toFixed(1)}MB > 4MB). 파일을 나눠서 업로드하세요.` },
+      { status: 400 },
+    );
+  }
+
+  // ── 파일별 파싱 및 perFileGroups 구성 ────────────────────────────────────────
+  const fileResults:  FileUploadResult[] = [];
+  const perFileGroups: PerFileGroup[]    = [];
+  const allBanks:     BankTransaction[]  = [];
+  const allCards:     CardTransaction[]  = [];
+  const allHts:       HometaxInvoice[]   = [];
 
   for (const file of rawFiles) {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
@@ -111,7 +123,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<UploadApiResp
       continue;
     }
     if (file.size > MAX_FILE_SIZE) {
-      fileResults.push({ fileName: file.name, companyCode: null, sourceType: null, confidence: 0, reasons: [], parsedCount: 0, insertedCount: 0, skippedDuplicateCount: 0, errors: [`파일 크기 초과 (${(file.size / 1024 / 1024).toFixed(1)}MB > 10MB)`], needsManual: true });
+      fileResults.push({ fileName: file.name, companyCode: null, sourceType: null, confidence: 0, reasons: [], parsedCount: 0, insertedCount: 0, skippedDuplicateCount: 0, errors: [`파일 크기 초과 (${(file.size / 1024 / 1024).toFixed(1)}MB > 4MB)`], needsManual: true });
       continue;
     }
 
@@ -127,10 +139,23 @@ export async function POST(req: NextRequest): Promise<NextResponse<UploadApiResp
       confidence:            parsed.confidence,
       reasons:               parsed.reasons,
       parsedCount:           parsed.parsedCount,
-      insertedCount:         0,  // will be updated after DB
+      insertedCount:         0,
       skippedDuplicateCount: 0,
       errors:                parsed.errors.map(e => e.message),
       needsManual:           parsed.needsManual,
+    });
+
+    // needsManual이어도 source_files 기록은 남김 (parseErrors만 있는 경우 포함)
+    perFileGroups.push({
+      filename:           file.name,
+      buffer,
+      sourceType:         parsed.sourceType as SourceType | null,
+      companyCode:        parsed.companyCode as CompanyCode | null,
+      detectedSourceType: parsed.sourceType,
+      banks:              !parsed.needsManual && parsed.bankTransactions ? parsed.bankTransactions : [],
+      cards:              !parsed.needsManual && parsed.cardTransactions ? parsed.cardTransactions : [],
+      hts:                !parsed.needsManual && parsed.hometaxInvoices  ? parsed.hometaxInvoices  : [],
+      parseErrors:        parsed.errors,
     });
 
     if (!parsed.needsManual) {
@@ -140,14 +165,14 @@ export async function POST(req: NextRequest): Promise<NextResponse<UploadApiResp
     }
   }
 
-  // ── Supabase 원천 데이터 upsert (cashflow_entries는 rematch가 생성) ──────────
+  // ── Supabase 원천 데이터 반영 (cashflow_entries는 rematch가 생성) ─────────────
   const label = `web_upload_${selectedMonth}_${Date.now()}`;
-  let importResult = { sessionId: '', bankUpserted: 0, cardUpserted: 0, htUpserted: 0, cashflowCreated: 0, cashflowSkipped: 0, bankIdMap: {}, cardIdMap: {}, htIdMap: {}, errors: [] as string[] };
+  let importResult = { sessionId: '', bankUpserted: 0, cardUpserted: 0, htUpserted: 0, cashflowCreated: 0, cashflowSkipped: 0, bankIdMap: {} as Record<string, string>, cardIdMap: {} as Record<string, string>, htIdMap: {} as Record<string, string>, errors: [] as string[] };
 
-  if (allBanks.length + allCards.length + allHts.length > 0) {
+  if (perFileGroups.length > 0) {
     try {
       // cashflow_entries 생성은 rematch에서 담당하므로 빈 배열 전달
-      importResult = await importUploadedResults(label, allBanks, allCards, allHts, []);
+      importResult = await importUploadedResults(label, perFileGroups, []);
     } catch (e) {
       return NextResponse.json({ ...empty, month: selectedMonth, files: fileResults, error: `DB 반영 오류: ${e}` }, { status: 500 });
     }

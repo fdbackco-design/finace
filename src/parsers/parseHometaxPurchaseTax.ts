@@ -13,9 +13,10 @@ export function parseHometaxPurchaseTax(
   company: CompanyCode,
   filename: string
 ): ParsedFileResult<HometaxInvoice> {
-  const wb  = XLSX.read(buffer, { type: 'buffer', raw: false });
-  const ws  = wb.Sheets[wb.SheetNames[0]];
-  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) as unknown[][];
+  const wb        = XLSX.read(buffer, { type: 'buffer', raw: false });
+  const sheetName = wb.SheetNames[0];
+  const ws        = wb.Sheets[sheetName];
+  const aoa       = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null }) as unknown[][];
 
   const records: HometaxInvoice[] = [];
   const errors:  ParseError[]     = [];
@@ -51,14 +52,16 @@ export function parseHometaxPurchaseTax(
         customerName,
         itemName,
         totalAmount,
-        supplyAmount: Math.abs(supplyAmount),
-        taxAmount:    Math.abs(taxAmount),
-        invoiceDirection:     'purchase',
-        taxType:              'tax',
+        supplyAmount:          Math.abs(supplyAmount),
+        taxAmount:             Math.abs(taxAmount),
+        invoiceDirection:      'purchase',
+        taxType:               'tax',
         invoiceClassification: invoiceClass,
         receiptType,
         isCancelled,
         vendorBusinessNo,
+        sourceRowNumber:       i + 1,
+        sourceSheetName:       sheetName,
       });
     } catch (e) {
       errors.push({ file: filename, rowIndex: i, message: String(e), rawData: row as unknown[] });

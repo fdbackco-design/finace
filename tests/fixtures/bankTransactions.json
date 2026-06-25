@@ -1,0 +1,40 @@
+[
+  {
+    "company": "feedback",
+    "sourceType": "BANK_IBK",
+    "transactionDate": "2026-06-10",
+    "transactionTime": "10:00:00",
+    "description": "테스트공급사",
+    "memo": "",
+    "withdrawAmount": 110000,
+    "depositAmount": 0,
+    "balance": 1000000,
+    "accountNo": "123-456-789",
+    "counterAccountNo": "",
+    "counterBank": "",
+    "counterAccountName": "테스트공급사",
+    "txType": "계좌이체",
+    "categoryHint": "",
+    "sourceRowNumber": 4,
+    "sourceSheetName": "Sheet1"
+  },
+  {
+    "company": "feedback",
+    "sourceType": "BANK_IBK",
+    "transactionDate": "2026-06-15",
+    "transactionTime": "14:00:00",
+    "description": "거래처A 입금",
+    "memo": "매출대금",
+    "withdrawAmount": 0,
+    "depositAmount": 220000,
+    "balance": 1220000,
+    "accountNo": "123-456-789",
+    "counterAccountNo": "",
+    "counterBank": "",
+    "counterAccountName": "거래처A",
+    "txType": "계좌이체",
+    "categoryHint": "",
+    "sourceRowNumber": 5,
+    "sourceSheetName": "Sheet1"
+  }
+]

@@ -3,18 +3,20 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev":       "next dev",
-    "build":     "next build",
-    "start":     "next start",
-    "lint":      "next lint",
-    "parse":     "ts-node --project tsconfig.scripts.json scripts/parse-all.ts",
-    "match":     "ts-node --project tsconfig.scripts.json scripts/match-all.ts",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "parse": "ts-node --project tsconfig.scripts.json scripts/parse-all.ts",
+    "match": "ts-node --project tsconfig.scripts.json scripts/match-all.ts",
     "db:import": "ts-node --project tsconfig.scripts.json scripts/import-to-supabase.ts",
-    "db:check":  "ts-node --project tsconfig.scripts.json scripts/check-db.ts",
-    "card:test":     "ts-node --project tsconfig.scripts.json scripts/test-card-classify.ts",
-    "card:backfill":      "ts-node --project tsconfig.scripts.json scripts/backfill-card-classification.ts",
+    "db:check": "ts-node --project tsconfig.scripts.json scripts/check-db.ts",
+    "card:test": "ts-node --project tsconfig.scripts.json scripts/test-card-classify.ts",
+    "card:backfill": "ts-node --project tsconfig.scripts.json scripts/backfill-card-classification.ts",
     "card:fix-settlement": "ts-node --project tsconfig.scripts.json scripts/fix-card-settlement.ts",
-    "card:fix-ht-match":   "ts-node --project tsconfig.scripts.json scripts/fix-card-ht-match.ts"
+    "card:fix-ht-match": "ts-node --project tsconfig.scripts.json scripts/fix-card-ht-match.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
@@ -31,6 +33,7 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.9",
     "ts-node": "^10.9.2",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^4.1.9"
   }
 }

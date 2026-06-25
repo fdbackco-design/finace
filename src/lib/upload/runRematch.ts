@@ -92,6 +92,12 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 // ── 메인 함수 ─────────────────────────────────────────────────────────────────
 
 export type RematchResult = {
@@ -104,7 +110,10 @@ export type RematchResult = {
   errors:        string[];
 };
 
-export async function runRematch(month: string): Promise<RematchResult> {
+export async function runRematch(
+  month:       string,
+  triggeredBy: 'upload' | 'manual' | 'scheduled' = 'upload',
+): Promise<RematchResult> {
   const client = createServerClient();
   if (!client) throw new Error('Supabase 클라이언트 생성 실패');
 
@@ -154,7 +163,7 @@ export async function runRematch(month: string): Promise<RematchResult> {
   const cardRows = (cardData ?? []) as any[];
   const htRows   = (htData   ?? []) as any[];
 
-  if (bankRows.length + cardRows.length + htRows.length === 0) {
+  if (bankRows.length + cardRows.length === 0 && htRows.length === 0) {
     return { deletedCount: 0, createdCount: 0, autoMatched: 0, manualReview: 0, unmatched: 0, skipped: 0, errors };
   }
 
@@ -162,6 +171,57 @@ export async function runRematch(month: string): Promise<RematchResult> {
   const bankDbIds = bankRows.map(r => r.id as string);
   const cardDbIds = cardRows.map(r => r.id as string);
   const htDbIds   = htRows.map(r   => r.id as string);
+
+  // DB UUID → company_code 역방향 맵 (matching_runs / transaction_matches 용)
+  const bankId2CompCode: Record<string, string> = {};
+  const cardId2CompCode: Record<string, string> = {};
+  const htId2CompCode:   Record<string, string> = {};
+  bankRows.forEach(r => { bankId2CompCode[r.id] = r.company_code; });
+  cardRows.forEach(r => { cardId2CompCode[r.id] = r.company_code; });
+  htRows.forEach(r   => { htId2CompCode[r.id]   = r.company_code; });
+
+  // ── matching_runs: 법인별 실행 레코드 생성 ────────────────────────────────
+  const companyCodes = [...new Set([
+    ...bankRows.map(r => r.company_code as string),
+    ...cardRows.map(r => r.company_code as string),
+    ...htRows.map(r   => r.company_code as string),
+  ])].filter(Boolean);
+
+  const matchingRunIds: Record<string, string> = {}; // company_code → matching_run UUID
+
+  for (const cc of companyCodes) {
+    const cid = companyMap[cc] ?? null;
+    const { data: runData, error: runErr } = await (client as any)
+      .from('matching_runs')
+      .insert({
+        company_id:     cid,
+        company_code:   cc,
+        target_month:   month,
+        engine_version: '1.0',
+        triggered_by:   triggeredBy,
+        status:         'running',
+        bank_count:     bankRows.filter(r => r.company_code === cc).length,
+        card_count:     cardRows.filter(r => r.company_code === cc).length,
+        ht_count:       htRows.filter(r   => r.company_code === cc).length,
+      })
+      .select('id')
+      .single();
+    if (runErr) errors.push(`matching_runs insert (${cc}): ${runErr.message}`);
+    else if (runData?.id) matchingRunIds[cc] = runData.id;
+
+    // REMATCH_START audit
+    if (cid) {
+      await (client as any).from('finance_audit_logs').insert({
+        company_id:   cid,
+        company_code: cc,
+        entity_type:  'matching_run',
+        entity_id:    runData?.id ?? null,
+        action_type:  'REMATCH_START',
+        after_json:   { month, triggered_by: triggeredBy },
+        actor_id:     'system',
+      });
+    }
+  }
 
   // ── 고정비 로드 ─────────────────────────────────────────────────────────────
   let fixedCosts: FixedCostEntry[] = [];
@@ -295,6 +355,69 @@ export async function runRematch(month: string): Promise<RematchResult> {
   // 그룹 내 순서 카운터
   const groupOrderCounter = new Map<string, number>();
 
+  // ── transaction_matches: 이전 실행 SUPERSEDED 처리 ───────────────────────
+  // 같은 company_id + target_month의 기존 매칭 이력을 비활성화.
+  // 다른 법인 또는 다른 월의 매칭은 영향받지 않음.
+  for (const cc of companyCodes) {
+    const cid = companyMap[cc] ?? null;
+    if (!cid) continue;
+    const currentRunId = matchingRunIds[cc];
+
+    // 이번 실행 이전 runs 조회 (현재 run 제외)
+    let oldRunQuery = (client as any)
+      .from('matching_runs')
+      .select('id')
+      .eq('company_id', cid)
+      .eq('target_month', month);
+    if (currentRunId) oldRunQuery = oldRunQuery.neq('id', currentRunId);
+
+    const { data: oldRuns } = await oldRunQuery;
+    const oldRunIds = ((oldRuns ?? []) as any[]).map(r => r.id as string).filter(Boolean);
+
+    if (oldRunIds.length > 0) {
+      const { error: supErr } = await (client as any)
+        .from('transaction_matches')
+        .update({ is_active: false, match_status: 'SUPERSEDED' })
+        .eq('is_active', true)
+        .eq('company_id', cid)
+        .in('matching_run_id', oldRunIds);
+      if (supErr) errors.push(`SUPERSEDED update (${cc}): ${supErr.message}`);
+    }
+  }
+
+  // ── transaction_matches: 신규 매칭 이력 INSERT ────────────────────────────
+  const tmRows = engine.matched.map(pair => {
+    const bankDbId = pair.bankTransactionId ? (bankDbIdMap[pair.bankTransactionId] ?? null) : null;
+    const cardDbId = pair.cardTransactionId ? (cardDbIdMap[pair.cardTransactionId] ?? null) : null;
+    const htDbId   = pair.hometaxInvoiceId  ? (htDbIdMap[pair.hometaxInvoiceId]   ?? null) : null;
+
+    const cc = bankDbId ? bankId2CompCode[bankDbId]
+             : htDbId   ? htId2CompCode[htDbId]
+             : cardDbId ? cardId2CompCode[cardDbId]
+             : null;
+    const cid   = cc ? (companyMap[cc] ?? null) : null;
+    const runId = cc ? (matchingRunIds[cc] ?? null) : null;
+
+    return {
+      match_type:          pair.matchType,
+      score:               pair.score,
+      hometax_invoice_id:  htDbId,
+      bank_transaction_id: bankDbId,
+      card_transaction_id: cardDbId,
+      fixed_cost_id:       pair.fixedCostId || null,
+      match_reason:        pair.matchReason  || null,
+      company_id:          cid,
+      matching_run_id:     runId,
+      match_status:        'AUTO_ACCEPTED' as const,
+      is_active:           true,
+    };
+  }).filter(tm => tm.bank_transaction_id || tm.card_transaction_id);
+
+  for (const batch of chunk(tmRows, 500)) {
+    const { error: tmErr } = await (client as any).from('transaction_matches').insert(batch);
+    if (tmErr) errors.push(`transaction_matches insert: ${tmErr.message}`);
+  }
+
   // ── 기존 자동 생성 항목 삭제 (USER_EDITED / USER_CONFIRMED 제외) ───────────
   // 이번에 처리할 원천 트랜잭션과 연결된 cashflow_entries만 삭제
   const PRESERVED = ['USER_EDITED', 'USER_CONFIRMED'];
@@ -386,7 +509,49 @@ export async function runRematch(month: string): Promise<RematchResult> {
     }
   }
 
+  // ── matching_runs 완료 업데이트 + REMATCH_COMPLETE 감사 로그 ────────────────
   const cf = engine.cashflow;
+  for (const cc of companyCodes) {
+    const runId = matchingRunIds[cc];
+    const cid   = companyMap[cc] ?? null;
+    if (!runId) continue;
+
+    const compCf       = cf.filter(e => e.company === cc);
+    const autoMatched  = compCf.filter(e => e.matchStatus === 'AUTO_MATCHED').length;
+    const manualReview = compCf.filter(e => e.matchStatus === 'MANUAL_REVIEW').length;
+    const unmatched    = compCf.filter(e => e.matchStatus === 'UNMATCHED').length;
+
+    const { error: runUpdErr } = await (client as any)
+      .from('matching_runs')
+      .update({
+        status:          errors.length > 0 ? 'failed' : 'completed',
+        auto_matched:    autoMatched,
+        manual_review:   manualReview,
+        unmatched_count: unmatched,
+        deleted_count:   deletedCount,
+        created_count:   createdCount,
+        error_summary:   errors.length > 0 ? { errors } : null,
+        completed_at:    new Date().toISOString(),
+      })
+      .eq('id', runId);
+    if (runUpdErr) errors.push(`matching_runs update (${cc}): ${runUpdErr.message}`);
+
+    if (cid) {
+      await (client as any).from('finance_audit_logs').insert({
+        company_id:   cid,
+        company_code: cc,
+        entity_type:  'matching_run',
+        entity_id:    runId,
+        action_type:  errors.length > 0 ? 'REMATCH_ERROR' : 'REMATCH_COMPLETE',
+        after_json: {
+          month, auto_matched: autoMatched, manual_review: manualReview,
+          unmatched, created_count: createdCount, deleted_count: deletedCount,
+        },
+        actor_id: 'system',
+      });
+    }
+  }
+
   return {
     deletedCount,
     createdCount,
