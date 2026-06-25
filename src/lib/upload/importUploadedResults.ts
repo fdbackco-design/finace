@@ -293,9 +293,10 @@ export async function importUploadedResults(
 
     // ── 3b. Storage 업로드 ─────────────────────────────────────────────────
     if (sourceFileId) {
-      const datePart   = new Date().toISOString().slice(0, 7);
-      const company    = companyCode ?? 'unknown';
-      const storagePath = `${company}/${datePart}/${Date.now()}_${filename}`;
+      const datePart    = new Date().toISOString().slice(0, 7);
+      const company     = companyCode ?? 'unknown';
+      const safeFilename = filename.replace(/\s+/g, '_');
+      const storagePath  = `${company}/${datePart}/${Date.now()}_${safeFilename}`;
 
       const { error: storageErr } = await (client as any).storage
         .from('finance-raw')
