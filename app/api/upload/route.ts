@@ -26,6 +26,12 @@ import { parseUploadedFile }          from '@/src/lib/upload/parseUploadedFile';
 import { importUploadedResults, PerFileGroup } from '@/src/lib/upload/importUploadedResults';
 import { runRematch }                 from '@/src/lib/upload/runRematch';
 import type { BankTransaction, CardTransaction, HometaxInvoice } from '@/src/lib/types';
+import { createServerClient }         from '@/src/lib/supabase/server';
+import { projectNormalizedTransactions } from '@/src/lib/phase2/projectNT';
+import { projectCashEvents }          from '@/src/lib/phase2/projectCashEvent';
+import { projectObligations }         from '@/src/lib/phase2/projectObligation';
+import { proposeAllocations }         from '@/src/lib/phase2/proposeAllocations';
+import { detectOverdueObligations }   from '@/src/lib/phase2/detectOverdue';
 
 export const dynamic    = 'force-dynamic';
 export const maxDuration = 60; // Vercel Pro 최대 60s
@@ -197,6 +203,54 @@ export async function POST(req: NextRequest): Promise<NextResponse<UploadApiResp
   }
   importResult.cashflowCreated = cashflowCreated;
   importResult.errors.push(...rematchErrors);
+
+  // ── Phase 2A: NT/CashEvent/Obligation 투영 + Allocation 제안 ─────────────────
+  // 기존 cashflow_entries / rematch 결과에 영향 없음 (additive only)
+  try {
+    const supabase2 = createServerClient();
+    if (supabase2 && perFileGroups.length > 0) {
+      // 업로드에 포함된 회사 목록 도출
+      const uploadedCompanies = new Set(
+        perFileGroups.map(g => g.companyCode).filter(Boolean)
+      );
+
+      for (const companyCode of uploadedCompanies) {
+        // DB에서 company_id 조회
+        const { data: companyRow } = await supabase2
+          .from('companies')
+          .select('id')
+          .eq('company_code', companyCode)
+          .single();
+        if (!companyRow) continue;
+
+        const companyId = companyRow.id as string;
+
+        // 1. NT 투영 (미처리 전체)
+        await projectNormalizedTransactions(supabase2, { companyId, companyCode: companyCode as CompanyCode });
+
+        // 2. Cash Event 투영 (REALIZED NT → cash_events)
+        await projectCashEvents(supabase2, { companyId, companyCode: companyCode as CompanyCode });
+
+        // 3. Obligation 투영 (HT NT + 카드 그룹 + 고정비)
+        await projectObligations(supabase2, {
+          companyId,
+          companyCode:     companyCode as CompanyCode,
+          fixedCostMonth:  selectedMonth,
+        });
+
+        // 4. Allocation 제안 (미배분 cash_event → obligation 매칭)
+        await proposeAllocations(supabase2, { companyId, companyCode: companyCode as CompanyCode });
+
+        // 5. 연체 감지
+        await detectOverdueObligations(supabase2, {
+          companyId,
+          companyCode: companyCode as CompanyCode,
+        });
+      }
+    }
+  } catch (phase2Err) {
+    importResult.errors.push(`[phase2] 투영 실패: ${phase2Err}`);
+  }
 
   const matchResult = { autoMatched, manualReview, unmatched: unmatchedCount };
 
