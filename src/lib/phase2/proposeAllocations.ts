@@ -119,6 +119,27 @@ export async function proposeAllocations(
       `${a.cash_event_id}:${a.obligation_id}`)
   );
 
+  // 3-b. 단일성 가드 사전 집계 (SINGLE_CANDIDATE / SINGLE_ALLOCATION용)
+  //   '강한 후보' = 방향 + 금액(±10) + 날짜(±3) + 거래처(≥0.8) 모두 충족한 (ce, obl) 쌍.
+  //   (SAME_COMPANY는 쿼리 필터로 보장, 단일성/파싱경고 제외 — runAutoConfirmChecks와 동일 임계)
+  //   후보가 2건 이상이면 오배분 위험 → 절대 자동확정하지 않고 PROPOSED로 남긴다.
+  const ceStrongCount  = new Map<string, number>();  // ce.id  → 강한 후보 obligation 수
+  const oblStrongCount = new Map<string, number>();  // obl.id → 강한 후보 cash_event 수
+  for (const ce of cashEvents as CeRow[]) {
+    for (const obl of obligations as OblRow[]) {
+      if (activePairs.has(`${ce.id}:${obl.id}`)) continue;
+      if (!isStrongMatch(ce, obl)) continue;
+      ceStrongCount.set(ce.id,  (ceStrongCount.get(ce.id)  ?? 0) + 1);
+      oblStrongCount.set(obl.id, (oblStrongCount.get(obl.id) ?? 0) + 1);
+    }
+  }
+
+  // 이미 활성 배분이 걸린 obligation은 '단일 배분'이 아님 (중복 확정 방지)
+  const oblExistingActive = new Map<string, number>();
+  for (const a of (activeAllocs ?? []) as { obligation_id: string }[]) {
+    oblExistingActive.set(a.obligation_id, (oblExistingActive.get(a.obligation_id) ?? 0) + 1);
+  }
+
   // 4. 매칭 후보 생성
   const allocationRows: AllocationRow[] = [];
   const reviewNeeded: { cashEventId: string; obligationId: string; reason: string }[] = [];
@@ -128,7 +149,13 @@ export async function proposeAllocations(
       const pairKey = `${ce.id}:${obl.id}`;
       if (activePairs.has(pairKey)) continue;
 
-      const checks = runAutoConfirmChecks(ce, obl, companyCode);
+      // 단일성 판정: 이 cash_event의 강한 후보가 정확히 1건 && 이 obligation의
+      // 강한 후보가 정확히 1건 && 기존 활성 배분 없음 일 때만 통과.
+      const singleCandidate  = (ceStrongCount.get(ce.id)  ?? 0) === 1;
+      const singleAllocation = (oblStrongCount.get(obl.id) ?? 0) === 1
+                            && (oblExistingActive.get(obl.id) ?? 0) === 0;
+
+      const checks = runAutoConfirmChecks(ce, obl, companyCode, singleCandidate, singleAllocation);
       const allPassed = checks.every(c => c.passed);
       const failedCodes = checks.filter(c => !c.passed).map(c => c.code);
 
@@ -248,6 +275,8 @@ function runAutoConfirmChecks(
   ce:  CeRow,
   obl: OblRow,
   companyCode: string,
+  singleCandidate:  boolean,
+  singleAllocation: boolean,
 ): AutoConfirmCheck[] {
   const checks: AutoConfirmCheck[] = [];
   const dateDiff = obl.due_date ? Math.abs(daysBetween(ce.event_date, obl.due_date)) : 999;
@@ -258,12 +287,26 @@ function runAutoConfirmChecks(
   checks.push({ code: 'AMOUNT_EXACT',        passed: amountDiff <= 10, detail: `diff=${amountDiff}` });
   checks.push({ code: 'DATE_WITHIN_3D',      passed: dateDiff <= 3,    detail: `diff=${dateDiff}d` });
   checks.push({ code: 'VENDOR_STRONG_MATCH', passed: vendorMatch(ce, obl) >= 0.8 });
-  checks.push({ code: 'SINGLE_CANDIDATE',    passed: true }); // DB 조회 후 post-filter에서 재확인
-  checks.push({ code: 'SINGLE_ALLOCATION',   passed: true }); // 위와 동일
-  checks.push({ code: 'NOT_PARTIAL_PAYMENT', passed: amountDiff <= 10 }); // 조건3과 동일 기준
+  checks.push({ code: 'SINGLE_CANDIDATE',    passed: singleCandidate });   // 강한 후보 obligation 정확히 1건
+  checks.push({ code: 'SINGLE_ALLOCATION',   passed: singleAllocation });  // 강한 후보 cash_event 1건 + 기존 활성 배분 없음
+  // TODO(후속 정리): NOT_PARTIAL_PAYMENT는 AMOUNT_EXACT(조건3)와 동일 식이라 독립 변별력이 없음. 스코프 밖.
+  checks.push({ code: 'NOT_PARTIAL_PAYMENT', passed: amountDiff <= 10 });
   checks.push({ code: 'NO_PARSE_WARNINGS',   passed: true }); // 파싱 단계에서 warnings 없으면 true
 
   return checks;
+}
+
+/**
+ * '강한 후보' 여부 — SINGLE_CANDIDATE/SINGLE_ALLOCATION 집계 기준.
+ * runAutoConfirmChecks의 방향·금액·날짜·거래처 판정과 동일 임계를 사용한다.
+ */
+function isStrongMatch(ce: CeRow, obl: OblRow): boolean {
+  if (!hasDirectionMatch(ce.event_type, obl.obligation_type)) return false;
+  if (Math.abs(ce.gross_amount - obl.remaining_amount) > 10) return false;
+  const dateDiff = obl.due_date ? Math.abs(daysBetween(ce.event_date, obl.due_date)) : 999;
+  if (dateDiff > 3) return false;
+  if (vendorMatch(ce, obl) < 0.8) return false;
+  return true;
 }
 
 function hasDirectionMatch(eventType: string, obligationType: string): boolean {
@@ -329,7 +372,7 @@ function computeConfidenceScore(checks: AutoConfirmCheck[], dateDiff: number): n
   return Math.min(1.0, score);
 }
 
-function determineReviewType(failedCodes: string): string {
+export function determineReviewType(failedCodes: string): string {
   if (failedCodes.includes('AMOUNT_EXACT')) return 'AMOUNT_MISMATCH';
   if (failedCodes.includes('DATE_WITHIN_3D')) return 'DATE_MISMATCH';
   if (failedCodes.includes('VENDOR_STRONG_MATCH')) return 'UNIDENTIFIED_COUNTERPARTY';
