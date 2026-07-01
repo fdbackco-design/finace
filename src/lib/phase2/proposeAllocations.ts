@@ -1,22 +1,28 @@
 /**
  * Phase 2A: Allocation 제안 + 자동확정
  *
- * 9가지 조건 모두 통과 시 AUTO_CONFIRMED, 하나라도 실패 시 PROPOSED + review_queue 생성.
+ * 9가지 조건 모두 통과 + autoConfirmEnabled=true 시 AUTO_CONFIRMED,
+ * 하나라도 실패 시 PROPOSED + review_queue 생성.
  *
  * 자동확정 9가지 조건 (모두 AND):
- *   1. 같은 회사
+ *   1. 같은 회사 (쿼리 필터로 보장)
  *   2. 방향 일치 (INFLOW↔RECEIVABLE, OUTFLOW↔PAYABLE)
  *   3. |cash_event.gross_amount - obligation.remaining_amount| ≤ 10원
  *   4. |event_date - due_date| ≤ 3일
- *   5. 거래처 강일치 (사업자번호 또는 이름 similarity ≥ 0.8)
- *   6. 단일 후보 (해당 obligation을 가리키는 PROPOSED가 이것 뿐)
- *   7. 단일 배분 (해당 cash_event에 대한 PROPOSED가 이것 뿐)
- *   8. 분할납부 아님 (|amount - remaining| > 10원이면 PARTIAL, 스킵)
- *   9. 파싱 경고 없음 (match_reason_codes에 'PARSE_WARNING' 포함 안됨)
+ *   5. 거래처 강일치 (이름 similarity ≥ 0.8) — cash_event 거래처는 026 뷰에서 로딩
+ *   6. 단일 후보 (이 cash_event의 강한 후보 obligation이 정확히 1건)
+ *   7. 단일 배분 (이 obligation의 강한 후보 cash_event 1건 + 기존 활성 배분 없음)
+ *   8. 분할납부 아님 (조건3과 동일 식 — TODO 정리 예정)
+ *   9. 파싱 경고 없음
+ *
+ * 안전 롤아웃:
+ *   - autoConfirmEnabled(기본 env AUTO_CONFIRM_ENABLED, 기본 false)가 true라야
+ *     조건 충족 건이 실제로 AUTO_CONFIRMED로 승격. false면 전건 PROPOSED.
  *
  * 원칙:
  *   - HUMAN_CONFIRMED allocation에는 절대 접근하지 않음
- *   - 이미 PROPOSED 중인 (cash_event_id, obligation_id) 쌍은 중복 생성 안됨
+ *   - 이미 활성(PROPOSED/AUTO/HUMAN) (cash_event_id, obligation_id) 쌍은 중복 생성 안됨
+ *   - 후보 2건 이상이면 자동확정 금지 → 사람 검토 (불일치를 숨기지 않음)
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -30,6 +36,13 @@ export interface ProposeAllocationOptions {
   cashEventIds?: string[];
   /** dry-run 시 실제 INSERT 하지 않음 */
   dryRun?: boolean;
+  /**
+   * 자동확정 최종 활성화 플래그.
+   * 기본값: env AUTO_CONFIRM_ENABLED === 'true' (미설정 시 false).
+   * false면 모든 조건을 통과해도 AUTO_CONFIRMED로 승격하지 않고 PROPOSED로 남긴다
+   * (안전 롤아웃: 승인 전까지 운영 동작 불변).
+   */
+  autoConfirmEnabled?: boolean;
 }
 
 export interface ProposeAllocationResult {
@@ -82,6 +95,8 @@ export async function proposeAllocations(
   opts:     ProposeAllocationOptions,
 ): Promise<ProposeAllocationResult> {
   const { companyId, companyCode, cashEventIds, dryRun = false } = opts;
+  // 안전 롤아웃: 명시 옵션 우선, 없으면 env(기본 false). true라야 자동확정 승격.
+  const autoConfirmEnabled = opts.autoConfirmEnabled ?? (process.env.AUTO_CONFIRM_ENABLED === 'true');
   const result: ProposeAllocationResult = { proposed: 0, autoConfirmed: 0, reviewItems: 0, errors: [] };
 
   // 1. 처리할 cash events 조회 (v_cash_event_balance에서 미배분/부분배분)
@@ -181,7 +196,8 @@ export async function proposeAllocations(
         match_reason_codes:  failedCodes.length === 0 ? ['AUTO_CONFIRM'] : failedCodes.map(c => `FAIL_${c}`),
         date_diff_days:      dateDiff,
         created_by:          'ENGINE',
-        allocation_status:   allPassed ? 'AUTO_CONFIRMED' : 'PROPOSED',
+        // 플래그 off면 조건을 모두 통과해도 PROPOSED 유지 (안전 롤아웃)
+        allocation_status:   (autoConfirmEnabled && allPassed) ? 'AUTO_CONFIRMED' : 'PROPOSED',
         auto_confirm_checks: checks,
       };
 
