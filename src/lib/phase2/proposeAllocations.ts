@@ -54,6 +54,27 @@ interface AllocationRow {
   auto_confirm_checks: AutoConfirmCheck[];
 }
 
+/** v_cash_event_balance 조회 결과 (자동확정 판정에 필요한 필드만) */
+interface CeRow {
+  id:                 string;
+  event_type:         string;
+  event_date:         string;
+  gross_amount:       number;
+  unallocated_amount: number;
+  counterparty_name:  string | null;   // 026 마이그레이션으로 뷰에 노출됨
+}
+
+/** v_obligation_balance 조회 결과 (자동확정 판정에 필요한 필드만) */
+interface OblRow {
+  id:                       string;
+  obligation_type:          string;
+  due_date:                 string | null;
+  gross_amount:             number;
+  remaining_amount:         number;
+  counterparty_name:        string | null;
+  counterparty_business_no: string | null;
+}
+
 // ── 메인 함수 ─────────────────────────────────────────────────────────────────
 
 export async function proposeAllocations(
@@ -66,7 +87,7 @@ export async function proposeAllocations(
   // 1. 처리할 cash events 조회 (v_cash_event_balance에서 미배분/부분배분)
   let ceQ = supabase
     .from('v_cash_event_balance')
-    .select('id, event_type, event_date, gross_amount, unallocated_amount, cash_status')
+    .select('id, event_type, event_date, gross_amount, unallocated_amount, cash_status, counterparty_name')
     .eq('company_id', companyId)
     .in('cash_status', ['UNALLOCATED', 'PARTIALLY_ALLOCATED']);
 
@@ -102,15 +123,8 @@ export async function proposeAllocations(
   const allocationRows: AllocationRow[] = [];
   const reviewNeeded: { cashEventId: string; obligationId: string; reason: string }[] = [];
 
-  for (const ce of cashEvents as {
-    id: string; event_type: string; event_date: string;
-    gross_amount: number; unallocated_amount: number;
-  }[]) {
-    for (const obl of obligations as {
-      id: string; obligation_type: string; due_date: string | null;
-      gross_amount: number; remaining_amount: number;
-      counterparty_name: string | null; counterparty_business_no: string | null;
-    }[]) {
+  for (const ce of cashEvents as CeRow[]) {
+    for (const obl of obligations as OblRow[]) {
       const pairKey = `${ce.id}:${obl.id}`;
       if (activePairs.has(pairKey)) continue;
 
@@ -231,9 +245,8 @@ export async function proposeAllocations(
 // ── 9가지 자동확정 체크 ────────────────────────────────────────────────────────
 
 function runAutoConfirmChecks(
-  ce:  { event_type: string; event_date: string; gross_amount: number; unallocated_amount: number },
-  obl: { obligation_type: string; due_date: string | null; remaining_amount: number;
-         counterparty_name: string | null; counterparty_business_no: string | null },
+  ce:  CeRow,
+  obl: OblRow,
   companyCode: string,
 ): AutoConfirmCheck[] {
   const checks: AutoConfirmCheck[] = [];
@@ -244,7 +257,7 @@ function runAutoConfirmChecks(
   checks.push({ code: 'DIRECTION_MATCH',     passed: hasDirectionMatch(ce.event_type, obl.obligation_type) });
   checks.push({ code: 'AMOUNT_EXACT',        passed: amountDiff <= 10, detail: `diff=${amountDiff}` });
   checks.push({ code: 'DATE_WITHIN_3D',      passed: dateDiff <= 3,    detail: `diff=${dateDiff}d` });
-  checks.push({ code: 'VENDOR_STRONG_MATCH', passed: vendorMatch({ counterparty_name: (ce as unknown as { counterparty_name?: string | null }).counterparty_name }, obl) >= 0.8 });
+  checks.push({ code: 'VENDOR_STRONG_MATCH', passed: vendorMatch(ce, obl) >= 0.8 });
   checks.push({ code: 'SINGLE_CANDIDATE',    passed: true }); // DB 조회 후 post-filter에서 재확인
   checks.push({ code: 'SINGLE_ALLOCATION',   passed: true }); // 위와 동일
   checks.push({ code: 'NOT_PARTIAL_PAYMENT', passed: amountDiff <= 10 }); // 조건3과 동일 기준

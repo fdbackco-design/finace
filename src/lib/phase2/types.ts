@@ -71,6 +71,9 @@ export interface CashEventBalance extends CashEvent {
   confirmed_allocated_amount: number;
   unallocated_amount:         number;
   cash_status:                CashStatus;
+  // 026 마이그레이션: v_cash_event_balance가 NT에서 파생해 노출 (자동확정 거래처 비교용)
+  counterparty_name?:         string | null;
+  counterparty_business_no?:  string | null;
 }
 
 export interface Obligation {
